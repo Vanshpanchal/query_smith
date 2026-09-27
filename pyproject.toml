@@ -1,0 +1,50 @@
+[project]
+name = "ask-data"
+version = "0.1.0"
+description = "Natural-language to SQL analyst agent (LangGraph + FastAPI + Postgres)"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi",
+    "uvicorn[standard]",
+    "sse-starlette",
+    "pydantic-settings",
+    "pandas",
+    "pyarrow",
+    "langgraph",
+    "langchain",
+    "langchain-groq",
+    "langchain-google-genai",
+    "langgraph-checkpoint-postgres",
+    "psycopg[binary,pool]",
+    "pgvector",
+    "sqlglot",
+    "redis",
+    "langsmith",
+    "python-json-logger",
+    "pyyaml",
+    "httpx",
+]
+
+[dependency-groups]
+dev = [
+    "pytest",
+    "pytest-asyncio",
+    "ruff",
+    "jupyter",
+    "ipykernel",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/ask_data"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

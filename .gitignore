@@ -1,0 +1,22 @@
+# Local scripts and documentation
+AI_CONTEXT.md
+
+# Secrets
+.env
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.egg-info/
+
+# IDE
+.idea/
+
+# Project data / results
+evals/results/
+datasets/*/raw/
+!datasets/*/raw/.gitkeep
+
+# Jupyter
+.ipynb_checkpoints/
