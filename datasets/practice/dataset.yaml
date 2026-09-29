@@ -1,0 +1,23 @@
+# Practice dataset for Phase 1.2 (loader). Not part of the product — delete when done.
+name: practice
+title: Loader practice
+description: Toy data to see how the loader sanitizes names, infers types and checks keys.
+
+source:
+  type: csv
+  options:
+    thousands: ","
+    date_dayfirst: true
+
+tables:
+  customers:
+    primary_key: [customer_id]
+    columns:
+      flag:  {type: boolean}
+
+  orders:
+    primary_key: [order_id]
+    foreign_keys:
+      - {columns: [customer_id], references: customers(customer_id)}
+    columns:
+      amount_inr: {type: "numeric(3,1)"}

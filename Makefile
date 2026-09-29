@@ -1,3 +1,4 @@
+
 .PHONY: up migrate load data dev test redteam eval lint reset-db
 
 up:
@@ -7,7 +8,9 @@ migrate:
 	uv run python scripts/migrate.py
 
 load:
-	uv run python scripts/load_dataset.py $(DATASET) && uv run python scripts/index_schema.py $(DATASET)
+	uv run python scripts/load_dataset.py $(DATASET)
+	@# schema cards (Phase 3): skipped until scripts/index_schema.py exists
+	@if [ -f scripts/index_schema.py ]; then uv run python scripts/index_schema.py $(DATASET); fi
 
 data: migrate
 	uv run python scripts/fetch_ipl.py
