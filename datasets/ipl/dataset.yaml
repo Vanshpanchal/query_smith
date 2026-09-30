@@ -1,0 +1,118 @@
+name: ipl
+title: IPL Cricket 2008–present
+description: >
+  Ball-by-ball Indian Premier League (IPL) T20 cricket data from Cricsheet: every match
+  since 2008 with teams, venues, toss, result and player of the match, each team's playing
+  squad per match, and every delivery bowled (runs, extras, wickets). Use it for team,
+  player, batting, bowling, venue and season statistics.
+
+source:
+  type: python                    # transform.py:extract(raw_dir); raw/ = Cricsheet ipl_json.zip
+  path: raw/
+
+load:
+  mode: replace
+
+tables:
+  teams:
+    comment: >
+      IPL teams as named in each season. Renamed teams are separate rows (e.g. Delhi Daredevils
+      and Delhi Capitals); use `franchise` to combine a franchise across its names.
+    primary_key: [id]
+    columns:
+      id: {type: int}
+      name: {comment: "Team name as used that season, e.g. 'Royal Challengers Bangalore'"}
+      franchise: {comment: "Current franchise name; same for all names of one franchise, e.g. 'Punjab Kings' for Kings XI Punjab"}
+
+  venues:
+    comment: Cricket grounds. Name variants and renamed grounds are merged into the current name.
+    primary_key: [id]
+    columns:
+      id: {type: int}
+      name: {comment: "Ground name without city, e.g. 'Eden Gardens', 'Wankhede Stadium'"}
+      city: {comment: "City, e.g. Mumbai, Bengaluru, Dubai (2020 season was played in the UAE)"}
+
+  players:
+    comment: Every player who appeared in a squad or on a scorecard.
+    primary_key: [id]
+    columns:
+      id: {type: int}
+      registry_id: {comment: "Cricsheet people-registry id (stable across name changes)"}
+      name: {comment: "Initials + surname as in Cricsheet, e.g. 'V Kohli', 'MS Dhoni', 'JJ Bumrah'. Use ILIKE for search"}
+
+  matches:
+    comment: One row per IPL match.
+    primary_key: [id]
+    foreign_keys:
+      - {columns: [venue_id], references: venues(id)}
+      - {columns: [team1_id], references: teams(id)}
+      - {columns: [team2_id], references: teams(id)}
+      - {columns: [toss_winner_id], references: teams(id)}
+      - {columns: [winner_id], references: teams(id)}
+      - {columns: [player_of_match_id], references: players(id)}
+    columns:
+      id: {type: bigint, comment: "Cricsheet match id"}
+      season: {type: int, comment: "IPL edition year as an integer, 2008..current"}
+      match_date: {type: date}
+      match_number: {type: int, comment: "League match number; NULL for playoff matches"}
+      stage: {comment: "NULL for league matches; playoffs: 'Qualifier 1', 'Eliminator', 'Qualifier 2', 'Final' (2008-2010: 'Semi Final', '3rd Place Play-Off', 'Elimination Final')"}
+      venue_id: {type: int}
+      team1_id: {type: int}
+      team2_id: {type: int}
+      toss_winner_id: {type: int}
+      toss_decision: {comment: "'bat' or 'field'"}
+      winner_id: {type: int, comment: "Winning team; for a tie it is the super-over winner; NULL for no result"}
+      result: {comment: "How the match ended: 'runs' (team batting first won), 'wickets' (chasing team won), 'tie', 'no result'"}
+      win_margin: {type: int, comment: "Margin in runs or wickets, per `result`; NULL for tie / no result"}
+      method: {comment: "'D/L' when the result was decided by Duckworth-Lewis, else NULL"}
+      player_of_match_id: {type: int}
+
+  player_match:
+    comment: Playing squad per match (one row per player per match, incl. impact-player substitutes).
+    primary_key: [match_id, player_id]
+    foreign_keys:
+      - {columns: [match_id], references: matches(id)}
+      - {columns: [player_id], references: players(id)}
+      - {columns: [team_id], references: teams(id)}
+    columns:
+      match_id: {type: bigint}
+      player_id: {type: int}
+      team_id: {type: int}
+
+  deliveries:
+    comment: >
+      One row per ball bowled (~300k rows). Legal ball = extras_type IS NULL OR extras_type
+      NOT IN ('wides','noballs'). Innings 1 and 2 are the match; inning >= 3 is a super over.
+    primary_key: [match_id, inning, over_no, ball_no]
+    foreign_keys:
+      - {columns: [match_id], references: matches(id)}
+      - {columns: [batting_team_id], references: teams(id)}
+      - {columns: [bowling_team_id], references: teams(id)}
+      - {columns: [batter_id], references: players(id)}
+      - {columns: [bowler_id], references: players(id)}
+      - {columns: [non_striker_id], references: players(id)}
+      - {columns: [player_out_id], references: players(id)}
+      - {columns: [fielder_id], references: players(id)}
+    columns:
+      match_id: {type: bigint}
+      inning: {type: int, comment: "1 or 2; 3+ = super over (exclude with inning <= 2)"}
+      over_no: {type: int, comment: "0-based over number: 0..19. Powerplay = 0..5, death overs = 15..19"}
+      ball_no: {type: int, comment: "Sequence within the over, counting wides and no-balls"}
+      batting_team_id: {type: int}
+      bowling_team_id: {type: int}
+      batter_id: {type: int}
+      bowler_id: {type: int}
+      non_striker_id: {type: int}
+      runs_batter: {type: int, comment: "Runs off the bat"}
+      runs_extras: {type: int}
+      runs_total: {type: int, comment: "runs_batter + runs_extras"}
+      extras_type: {comment: "NULL | 'wides' | 'noballs' | 'byes' | 'legbyes' | 'penalty'"}
+      is_wicket: {type: boolean}
+      wicket_kind: {comment: "caught | bowled | lbw | run out | stumped | caught and bowled | hit wicket | retired hurt | retired out | obstructing the field. Bowler's wicket excludes run out, retired hurt, retired out, obstructing the field"}
+      player_out_id: {type: int}
+      fielder_id: {type: int, comment: "First fielder involved in the dismissal (catcher, stumper, run-out fielder); NULL otherwise"}
+
+indexes:
+  - matches(season)
+  - deliveries(batter_id)
+  - deliveries(bowler_id)

@@ -1,15 +1,17 @@
 """Apply db/migrations/*.sql in filename order, tracking what's already run in app._migrations."""
-import os
+
 import sys
 from pathlib import Path
 
 import psycopg
 
+from ask_data.config import settings
+
 MIGRATIONS_DIR = Path(__file__).resolve().parent.parent / "db" / "migrations"
 
 
 def main() -> None:
-    dsn = os.environ["APP_DATABASE_URL"]
+    dsn = settings.app_database_url  # reads .env, same as the loader
     files = sorted(MIGRATIONS_DIR.glob("*.sql"))
     if not files:
         print("No migrations found.")

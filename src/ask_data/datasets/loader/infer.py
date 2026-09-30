@@ -24,6 +24,8 @@ INT_RE = re.compile(r"^[+-]?\d+$")
 LEADING_ZERO_RE = re.compile(r"^[+-]?0\d")  # 007, 00123: codes, not numbers
 DATE_SHAPE_RE = re.compile(r"\d+\D+\d+")  # needs two digit groups; "May" alone is not a date
 ISO_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}")
+# "1,200" / "3,400.50": grouped numbers that pandas would happily read as dates in year 200
+GROUPED_NUMBER_RE = re.compile(r"^[+-]?\d{1,3}(,\d{3})+(\.\d+)?$")
 TRUE_WORDS = {"true", "t", "yes", "y", "1"}
 FALSE_WORDS = {"false", "f", "no", "n", "0"}
 
@@ -119,7 +121,7 @@ def _parse_bool(s: str) -> object:
 
 def _parse_datetimes(uniq: list[str], opts: ParseOptions) -> tuple[dict[str, object], bool]:
     """Parse unique strings in one vectorized call. Returns (mapping, is_tz_aware)."""
-    candidates = [u for u in uniq if DATE_SHAPE_RE.search(u)]
+    candidates = [u for u in uniq if DATE_SHAPE_RE.search(u) and not GROUPED_NUMBER_RE.match(u)]
     mapping: dict[str, object] = dict.fromkeys(uniq, _FAIL)
     if not candidates:
         return mapping, False
