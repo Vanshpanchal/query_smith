@@ -1,0 +1,66 @@
+name: sales
+title: Retail Sales 2023–2025
+description: >
+  Orders, order line items, customers and products of an Indian online retail store
+  (2023–2025). Amounts are in INR. One order has many items. Use it for revenue, order,
+  product, category, customer and city statistics.
+
+source:
+  type: csv                       # raw/ is written by scripts/make_sales_data.py (synthetic)
+  path: raw/
+  options:
+    date_dayfirst: true           # 27/09/2024 -> 2024-09-27
+    thousands: ","                # "1,299.00" -> 1299.00
+
+load:
+  mode: replace
+
+tables:
+  customers:
+    comment: One row per registered customer.
+    primary_key: [customer_id]
+    columns:
+      customer_id: {type: bigint}
+      name: {comment: "Full name; not unique, so group by customer_id and show the name"}
+      city: {comment: "City as typed by the customer, in mixed case (e.g. 'Mumbai', 'mumbai', 'MUMBAI'); NULL if blank. Compare with ILIKE, group by INITCAP(city)"}
+      pincode: {comment: "6-digit postal code, kept as text (some start with 0)"}
+      signup_date: {comment: "Date the customer registered"}
+      is_premium: {comment: "Paid premium membership"}
+
+  products:
+    comment: Product catalogue with list prices.
+    primary_key: [product_id]
+    columns:
+      product_id: {type: bigint}
+      category: {comment: "Top-level category: 'Electronics', 'Apparel', 'Home', 'Books'"}
+      price_inr: {type: "numeric(12,2)", comment: "List price in INR"}
+
+  orders:
+    comment: One row per order (order header).
+    primary_key: [order_id]
+    foreign_keys:
+      - {columns: [customer_id], references: customers(customer_id)}
+    columns:
+      order_id: {type: bigint}
+      customer_id: {type: bigint}
+      order_date: {comment: "Date the order was placed"}
+      status: {comment: "'placed' | 'shipped' | 'delivered' | 'cancelled' | 'returned'. Revenue excludes cancelled and returned"}
+      channel: {comment: "Where the order was placed: 'web' | 'app' | 'phone'"}
+
+  order_items:
+    comment: One row per product line in an order.
+    primary_key: [order_id, line_no]
+    foreign_keys:
+      - {columns: [order_id], references: orders(order_id)}
+      - {columns: [product_id], references: products(product_id)}
+    columns:
+      order_id: {type: bigint}
+      line_no: {type: int, comment: "1-based line number within the order"}
+      product_id: {type: bigint}
+      quantity: {comment: "Units ordered"}
+      unit_price: {type: "numeric(12,2)", comment: "Price per unit in INR at order time"}
+      discount: {type: "numeric(12,2)", comment: "Absolute discount in INR for the whole line (not per unit). Line revenue = quantity * unit_price - discount"}
+
+indexes:
+  - orders(order_date)
+  - order_items(product_id)

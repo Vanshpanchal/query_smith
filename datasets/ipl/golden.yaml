@@ -1,0 +1,218 @@
+# IPL golden set: question -> verified gold SQL. Format: vault Testing.md ("Golden sets").
+# Every gold_sql here was run against the loaded `ipl` schema (version eb07f40c6ef9, seasons
+# 2008-2026) as askdata_reader, and the result checked by hand; `expected` records that check.
+# Scoring is execution match (row/column order ignored), so keep the select list minimal:
+# the entity + the one number the question asks for.
+# Conventions the gold SQL follows (move these into datasets/ipl/notes.md in Phase 2):
+#   - match statistics exclude super overs: deliveries.inning <= 2
+#   - bowler's wickets exclude run out, retired hurt, retired out, obstructing the field
+#   - legal ball: extras_type IS NULL OR extras_type NOT IN ('wides', 'noballs')
+#   - runs conceded by a bowler exclude byes, legbyes and penalty runs
+#   - "titles"/"franchise" questions group by teams.franchise, not teams.name
+# split: all `test` for now; Phase 2 moves ~8 to `train` (fewshots.yaml) as the set grows to 40.
+
+- id: q001
+  question: Who won the IPL final in 2016?
+  gold_sql: |
+    SELECT t.name
+    FROM ipl.matches m
+    JOIN ipl.teams t ON t.id = m.winner_id
+    WHERE m.season = 2016 AND m.stage = 'Final'
+  expected: Sunrisers Hyderabad
+  category: lookup
+  split: test
+
+- id: q002
+  question: At which venue was the first ever IPL match played?
+  gold_sql: |
+    SELECT v.name, v.city
+    FROM ipl.matches m
+    JOIN ipl.venues v ON v.id = m.venue_id
+    ORDER BY m.match_date, m.id
+    LIMIT 1
+  expected: M Chinnaswamy Stadium, Bengaluru
+  category: lookup
+  split: test
+
+- id: q003
+  question: Which team won the most matches in the 2023 season?
+  gold_sql: |
+    SELECT t.name, COUNT(*) AS wins
+    FROM ipl.matches m
+    JOIN ipl.teams t ON t.id = m.winner_id
+    WHERE m.season = 2023
+    GROUP BY t.name
+    ORDER BY wins DESC
+    LIMIT 1
+  expected: Gujarat Titans, 11
+  category: aggregation
+  split: test
+
+- id: q004
+  question: How many matches were played in each season?
+  gold_sql: |
+    SELECT season, COUNT(*) AS matches
+    FROM ipl.matches
+    GROUP BY season
+    ORDER BY season
+  expected: 19 rows, 57-76 per season (2008 = 58, 2026 = 74)
+  category: aggregation
+  split: test
+
+- id: q005
+  question: How many sixes were hit in each IPL season?
+  gold_sql: |
+    SELECT m.season, COUNT(*) AS sixes
+    FROM ipl.deliveries d
+    JOIN ipl.matches m ON m.id = d.match_id
+    WHERE d.runs_batter = 6 AND d.inning <= 2
+    GROUP BY m.season
+    ORDER BY m.season
+  expected: 19 rows, 2008 = 623 ... 2026 = 1,426
+  category: aggregation
+  split: test
+
+- id: q006
+  question: How many IPL matches have ended in a tie?
+  gold_sql: |
+    SELECT COUNT(*) AS ties
+    FROM ipl.matches
+    WHERE result = 'tie'
+  expected: "16"
+  category: aggregation
+  split: test
+
+- id: q007
+  question: Who are the top 5 run scorers of all time in the IPL?
+  gold_sql: |
+    SELECT p.name, SUM(d.runs_batter) AS runs
+    FROM ipl.deliveries d
+    JOIN ipl.players p ON p.id = d.batter_id
+    WHERE d.inning <= 2
+    GROUP BY p.id, p.name
+    ORDER BY runs DESC
+    LIMIT 5
+  expected: V Kohli 9336, RG Sharma 7329, S Dhawan 6769, DA Warner 6565, KL Rahul 5815
+  category: joins
+  split: test
+
+- id: q008
+  question: Which bowler has taken the most wickets in IPL history?
+  gold_sql: |
+    SELECT p.name, COUNT(*) AS wickets
+    FROM ipl.deliveries d
+    JOIN ipl.players p ON p.id = d.bowler_id
+    WHERE d.is_wicket AND d.inning <= 2
+      AND d.wicket_kind NOT IN ('run out', 'retired hurt', 'retired out', 'obstructing the field')
+    GROUP BY p.id, p.name
+    ORDER BY wickets DESC
+    LIMIT 1
+  expected: YS Chahal, 233
+  category: joins
+  split: test
+
+- id: q009
+  question: Which player has won the most player of the match awards?
+  gold_sql: |
+    SELECT p.name, COUNT(*) AS awards
+    FROM ipl.matches m
+    JOIN ipl.players p ON p.id = m.player_of_match_id
+    GROUP BY p.id, p.name
+    ORDER BY awards DESC
+    LIMIT 1
+  expected: AB de Villiers, 25
+  category: joins
+  split: test
+
+- id: q010
+  question: Which venue has hosted the most IPL matches?
+  gold_sql: |
+    SELECT v.name, COUNT(*) AS matches
+    FROM ipl.matches m
+    JOIN ipl.venues v ON v.id = m.venue_id
+    GROUP BY v.id, v.name
+    ORDER BY matches DESC
+    LIMIT 1
+  expected: Wankhede Stadium, 132
+  category: joins
+  split: test
+
+- id: q011
+  question: How many IPL titles has each franchise won?
+  gold_sql: |
+    SELECT t.franchise, COUNT(*) AS titles
+    FROM ipl.matches m
+    JOIN ipl.teams t ON t.id = m.winner_id
+    WHERE m.stage = 'Final'
+    GROUP BY t.franchise
+    ORDER BY titles DESC
+  expected: 8 rows - CSK 5, MI 5, KKR 3, RCB 2, then 1 each for Deccan Chargers, GT, RR, SRH
+  category: domain
+  split: test
+
+- id: q012
+  question: For each season since 2018, in what percentage of matches did the toss winner also win the match?
+  gold_sql: |
+    SELECT season,
+           ROUND(100.0 * COUNT(*) FILTER (WHERE toss_winner_id = winner_id) / COUNT(*), 1)
+             AS toss_winner_win_pct
+    FROM ipl.matches
+    WHERE season >= 2018 AND winner_id IS NOT NULL
+    GROUP BY season
+    ORDER BY season
+  expected: 9 rows (2018-2026), 41.7 (2020) to 61.0 (2019); no-result matches excluded
+  category: time
+  split: test
+
+- id: q013
+  question: How many matches did Chennai Super Kings win in each season?
+  gold_sql: |
+    SELECT m.season, COUNT(*) AS wins
+    FROM ipl.matches m
+    JOIN ipl.teams t ON t.id = m.winner_id
+    WHERE t.name = 'Chennai Super Kings'
+    GROUP BY m.season
+    ORDER BY m.season
+  expected: 17 rows, no 2016-2017 (CSK suspended); 2013 = 12
+  category: time
+  split: test
+
+- id: q014
+  question: Who scored the most runs in each IPL season?
+  gold_sql: |
+    WITH season_runs AS (
+      SELECT m.season, p.name, SUM(d.runs_batter) AS runs,
+             RANK() OVER (PARTITION BY m.season ORDER BY SUM(d.runs_batter) DESC) AS rnk
+      FROM ipl.deliveries d
+      JOIN ipl.matches m ON m.id = d.match_id
+      JOIN ipl.players p ON p.id = d.batter_id
+      WHERE d.inning <= 2
+      GROUP BY m.season, p.id, p.name
+    )
+    SELECT season, name, runs
+    FROM season_runs
+    WHERE rnk = 1
+    ORDER BY season
+  expected: 19 rows (no ties); 2016 = V Kohli 973, 2023 = Shubman Gill 890
+  category: window/rank
+  split: test
+
+- id: q015
+  question: Which bowler has the best economy rate in the death overs (overs 16 to 20), with at least 300 legal balls bowled there?
+  gold_sql: |
+    SELECT p.name,
+           ROUND(6.0 * SUM(d.runs_total - CASE WHEN d.extras_type IN ('byes', 'legbyes', 'penalty')
+                                               THEN d.runs_extras ELSE 0 END)
+                 / COUNT(*) FILTER (WHERE d.extras_type IS NULL
+                                     OR d.extras_type NOT IN ('wides', 'noballs')), 2) AS economy
+    FROM ipl.deliveries d
+    JOIN ipl.players p ON p.id = d.bowler_id
+    WHERE d.over_no BETWEEN 15 AND 19 AND d.inning <= 2
+    GROUP BY p.id, p.name
+    HAVING COUNT(*) FILTER (WHERE d.extras_type IS NULL
+                             OR d.extras_type NOT IN ('wides', 'noballs')) >= 300
+    ORDER BY economy
+    LIMIT 1
+  expected: SP Narine, 7.25 (then SL Malinga 7.86, JJ Bumrah 8.19)
+  category: domain
+  split: test

@@ -17,6 +17,8 @@ __pycache__/
 evals/results/
 datasets/*/raw/
 !datasets/*/raw/.gitkeep
+# small synthetic dataset (scripts/make_sales_data.py), committed so tests and CI can load it
+!datasets/sales/raw/
 
 # Jupyter
 .ipynb_checkpoints/
