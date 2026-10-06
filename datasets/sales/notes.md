@@ -1,0 +1,9 @@
+- Line revenue = `quantity * unit_price - discount` (discount is for the whole line, not per unit). Revenue = SUM of line revenue over `order_items`.
+- Revenue, sales and "units sold" exclude orders with `status IN ('cancelled', 'returned')`. Order counts include every status unless the question says otherwise.
+- Relative dates ("last month", "last quarter", "this year", "recent") are relative to `(SELECT MAX(order_date) FROM sales.orders)`, not to today: the data ends in December 2025.
+- Quarters are calendar quarters: `date_trunc('quarter', order_date)`. Months: `date_trunc('month', order_date)`.
+- `customers.city` is in mixed case: compare with `ILIKE`, group by `INITCAP(city)`, and drop NULL cities when ranking cities.
+- Customer names are not unique: group by `customer_id` and show the name.
+- Average order value = revenue / COUNT(DISTINCT order_id) over non-cancelled, non-returned orders.
+- Return rate = share of orders with `status = 'returned'` (over all orders unless told otherwise).
+- Amounts are in INR.

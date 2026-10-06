@@ -12,6 +12,9 @@ psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" <<-SQL
 
   -- reader: connect only; SELECT on dataset schemas is granted per dataset by the loader
   REVOKE ALL ON SCHEMA public FROM PUBLIC;
+  -- default_transaction_read_only is only a default the session can turn off, so the reader must
+  -- also lack every write privilege. TEMP is granted to PUBLIC by default: take it away.
+  REVOKE TEMPORARY ON DATABASE askdata FROM PUBLIC;
   GRANT CONNECT ON DATABASE askdata TO askdata_reader;
   ALTER ROLE askdata_reader SET default_transaction_read_only = on;
   ALTER ROLE askdata_reader SET statement_timeout = '5s';

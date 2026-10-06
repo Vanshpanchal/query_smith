@@ -1,0 +1,70 @@
+# Verified examples injected into the SQL prompt (top-3 by similarity to the question).
+# Every SQL here was run as askdata_reader on version eb07f40c6ef9 (2008-2026); `expected` is the
+# checked result. These questions must never appear in golden.yaml (test_datasets_repo checks it).
+
+- question: How many runs did Virat Kohli score in the 2016 season?
+  sql: |
+    SELECT p.name, SUM(d.runs_batter) AS runs
+    FROM ipl.deliveries d
+    JOIN ipl.matches m ON m.id = d.match_id
+    JOIN ipl.players p ON p.id = d.batter_id
+    WHERE m.season = 2016 AND d.inning <= 2 AND p.name ILIKE '%kohli%'
+    GROUP BY p.id, p.name
+  expected: V Kohli 973
+
+- question: Who were the top 5 wicket takers in the 2022 season?
+  sql: |
+    SELECT p.name, COUNT(*) AS wickets
+    FROM ipl.deliveries d
+    JOIN ipl.matches m ON m.id = d.match_id
+    JOIN ipl.players p ON p.id = d.bowler_id
+    WHERE m.season = 2022 AND d.inning <= 2 AND d.is_wicket
+      AND d.wicket_kind NOT IN ('run out', 'retired hurt', 'retired out', 'obstructing the field')
+    GROUP BY p.id, p.name
+    ORDER BY wickets DESC
+    LIMIT 5
+  expected: YS Chahal 27, PWH de Silva 26, K Rabada 23, Umran Malik 22, Kuldeep Yadav 21
+
+- question: How many matches has each franchise played?
+  sql: |
+    SELECT t.franchise, COUNT(*) AS matches
+    FROM ipl.matches m
+    JOIN ipl.teams t ON t.id IN (m.team1_id, m.team2_id)
+    GROUP BY t.franchise
+    ORDER BY matches DESC
+  expected: 15 rows, Mumbai Indians 291 first
+
+- question: What is MS Dhoni's strike rate in the powerplay?
+  sql: |
+    SELECT p.name,
+           ROUND(100.0 * SUM(d.runs_batter)
+                 / COUNT(*) FILTER (WHERE d.extras_type IS DISTINCT FROM 'wides'), 2) AS strike_rate
+    FROM ipl.deliveries d
+    JOIN ipl.players p ON p.id = d.batter_id
+    WHERE p.name ILIKE '%dhoni%' AND d.over_no BETWEEN 0 AND 5 AND d.inning <= 2
+    GROUP BY p.id, p.name
+  expected: MS Dhoni 81.94
+
+- question: What is the highest team total in a single IPL innings?
+  sql: |
+    SELECT t.name AS batting_team, m.season, SUM(d.runs_total) AS total
+    FROM ipl.deliveries d
+    JOIN ipl.matches m ON m.id = d.match_id
+    JOIN ipl.teams t ON t.id = d.batting_team_id
+    WHERE d.inning <= 2
+    GROUP BY d.match_id, d.inning, t.name, m.season
+    ORDER BY total DESC
+    LIMIT 1
+  expected: Sunrisers Hyderabad, 2024, 287
+
+- question: Which teams have won the most matches at Eden Gardens?
+  sql: |
+    SELECT t.name, COUNT(*) AS wins
+    FROM ipl.matches m
+    JOIN ipl.venues v ON v.id = m.venue_id
+    JOIN ipl.teams t ON t.id = m.winner_id
+    WHERE v.name ILIKE '%eden gardens%'
+    GROUP BY t.name
+    ORDER BY wins DESC
+    LIMIT 5
+  expected: Kolkata Knight Riders 57, Mumbai Indians 10, Chennai Super Kings 7, ...

@@ -1,0 +1,13 @@
+- Match statistics (runs, balls, wickets, totals) exclude super overs: filter `deliveries.inning <= 2` unless the question is about super overs.
+- Legal ball (balls bowled, overs, economy): `extras_type IS NULL OR extras_type NOT IN ('wides', 'noballs')`.
+- Balls faced by a batter exclude wides only (a no-ball counts as a ball faced): `extras_type IS DISTINCT FROM 'wides'`. Strike rate = 100 * SUM(runs_batter) / balls faced.
+- A bowler's wickets: `is_wicket AND wicket_kind NOT IN ('run out', 'retired hurt', 'retired out', 'obstructing the field')`.
+- Runs conceded by a bowler = `runs_total` minus byes, legbyes and penalty runs: `SUM(runs_total - CASE WHEN extras_type IN ('byes', 'legbyes', 'penalty') THEN runs_extras ELSE 0 END)`.
+- Economy = 6 * runs conceded / legal balls. Bowling average = runs conceded / bowler's wickets. Batting runs = SUM(runs_batter).
+- `over_no` is 0-based: powerplay "overs 1-6" = `over_no BETWEEN 0 AND 5`; death "overs 16-20" = `over_no BETWEEN 15 AND 19`; middle overs = 6..14.
+- A team's innings total = SUM(runs_total) grouped by match_id, inning, batting_team_id.
+- Title / champion / "won the IPL" = winner of the match with `stage = 'Final'` (exact value, capital F).
+- Teams were renamed (Delhi Daredevils -> Delhi Capitals, Kings XI Punjab -> Punjab Kings, Royal Challengers Bangalore -> Bengaluru). For a team across all seasons, or any franchise / titles question, group or filter by `teams.franchise`; for one season use `teams.name`.
+- Matches a team played: `team1_id = t.id OR team2_id = t.id`. Win % excludes no-result matches (`winner_id IS NULL`).
+- Player names are initials + surname ('V Kohli', 'MS Dhoni', 'JJ Bumrah'): match with `ILIKE '%kohli%'` and group by `players.id` (names can repeat).
+- `season` is an integer year. "All time" / "in IPL history" = no season filter.

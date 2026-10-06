@@ -3,7 +3,7 @@
 # 2008-2026) as askdata_reader, and the result checked by hand; `expected` records that check.
 # Scoring is execution match (row/column order ignored), so keep the select list minimal:
 # the entity + the one number the question asks for.
-# Conventions the gold SQL follows (move these into datasets/ipl/notes.md in Phase 2):
+# Conventions the gold SQL follows (also the rules in datasets/ipl/notes.md, used by the prompt):
 #   - match statistics exclude super overs: deliveries.inning <= 2
 #   - bowler's wickets exclude run out, retired hurt, retired out, obstructing the field
 #   - legal ball: extras_type IS NULL OR extras_type NOT IN ('wides', 'noballs')

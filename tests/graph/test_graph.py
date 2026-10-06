@@ -1,0 +1,165 @@
+"""Paths through the compiled graph with scripted LLMs and a fake executor (no DB, no API key)."""
+
+import pytest
+from conftest import DECLINE_INTENT, ScriptedLLM, draft
+from langgraph.checkpoint.memory import InMemorySaver
+
+from ask_data.config import settings
+from ask_data.graph.builder import build_graph
+from ask_data.graph.state import per_turn_reset
+from ask_data.sql.executor import QueryError
+
+ITEMS = (["name"], [("Robot",), ("Kite",)])
+
+
+@pytest.fixture
+def graph():
+    return build_graph(InMemorySaver())
+
+
+def cfg(thread: str) -> dict:
+    return {"configurable": {"thread_id": thread}}
+
+
+async def ask(graph, deps, question: str, thread: str = "t1") -> dict:
+    return await graph.ainvoke(per_turn_reset("shop", question), cfg(thread), context=deps)
+
+
+async def test_happy_path(graph, make_deps):
+    deps = make_deps(results={"FROM items": ITEMS})
+    out = await ask(graph, deps, "list items")
+    assert out["outcome"] == "answered" and out["attempts"] == 1
+    assert out["sql"] == "SELECT name FROM items LIMIT 1000"  # guard added the limit
+    assert out["rows"] == [["Robot"], ["Kite"]] and out["last_sql"] == out["sql"]
+    assert out["messages"][-1].content == "The answer."
+    sql_prompt = deps.sql_llm.prompts[0]
+    assert "TABLE shop.items" in sql_prompt and "Count orders with COUNT(*)" in sql_prompt
+    assert "previous query failed" not in sql_prompt
+
+
+async def test_guard_error_then_success(graph, make_deps):
+    deps = make_deps(
+        sql=[draft("SELECT name FROM itemz"), draft("SELECT name FROM items")],
+        results={"FROM items": ITEMS},
+    )
+    out = await ask(graph, deps, "list items")
+    assert out["outcome"] == "answered" and out["attempts"] == 2
+    repair = deps.sql_llm.prompts[1]
+    assert "SELECT name FROM itemz" in repair and "Unknown table: shop.itemz" in repair
+
+
+async def test_db_error_then_success(graph, make_deps):
+    deps = make_deps(
+        sql=[draft("SELECT nme FROM items"), draft("SELECT name FROM items")],
+        results={
+            "nme": QueryError('UndefinedColumn: column "nme" does not exist'),
+            "FROM items": ITEMS,
+        },
+    )
+    out = await ask(graph, deps, "list items")
+    assert out["outcome"] == "answered" and out["attempts"] == 2
+    assert 'column "nme" does not exist' in deps.sql_llm.prompts[1]
+
+
+async def test_gives_up_after_max_attempts(graph, make_deps):
+    deps = make_deps(sql=[draft("SELECT name FROM nope")])
+    out = await ask(graph, deps, "list items")
+    assert out["outcome"] == "gave_up"
+    assert out["attempts"] == settings.max_attempts
+    assert len(deps.sql_llm.prompts) == settings.max_attempts
+    assert "Unknown table" in out["answer"] and deps.executor.executed == []
+
+
+async def test_plan_cost_cap_triggers_retry(graph, make_deps):
+    deps = make_deps(cost=settings.max_plan_cost * 10)
+    out = await ask(graph, deps, "list items")
+    assert out["outcome"] == "gave_up" and "plan cost" in out["error"]
+    assert deps.executor.executed == []  # EXPLAIN blocked it before execution
+
+
+async def test_structured_output_failure_counts_as_attempt(graph, make_deps):
+    deps = make_deps(
+        sql=[ValueError("bad json"), ValueError("bad json"), draft("SELECT name FROM items")],
+        results={"FROM items": ITEMS},
+    )
+    out = await ask(graph, deps, "list items")
+    # attempt 1: both tries (call + one retry) fail → retry; attempt 2 succeeds
+    assert out["outcome"] == "answered" and out["attempts"] == 2
+
+
+async def test_empty_result_retried_once(graph, make_deps):
+    deps = make_deps(
+        sql=[
+            draft("SELECT name FROM items WHERE name = 'robot'"),
+            draft("SELECT name FROM items WHERE name ILIKE 'robot'"),
+        ],
+        results={"= 'robot'": (["name"], []), "ILIKE": (["name"], [("Robot",)])},
+    )
+    out = await ask(graph, deps, "is there a robot?")
+    assert out["attempts"] == 2 and out["rows"] == [["Robot"]]
+    assert "returned no rows" in deps.sql_llm.prompts[1]
+
+
+async def test_empty_result_accepted_after_hint(graph, make_deps):
+    deps = make_deps(results={"FROM items": (["name"], [])})
+    out = await ask(graph, deps, "list items")
+    assert out["outcome"] == "answered" and out["attempts"] == 2 and out["rows"] == []
+
+
+async def test_decline(graph, make_deps):
+    deps = make_deps(intent=DECLINE_INTENT)
+    out = await ask(graph, deps, "what's the weather?")
+    assert out["outcome"] == "declined" and out["attempts"] == 0
+    assert "How many items are there?" in out["answer"]  # example questions from fewshots
+    assert deps.sql_llm.prompts == []
+
+
+async def test_classify_failure_fails_open_to_sql(graph, make_deps):
+    deps = make_deps(intent=RuntimeError("provider down"), results={"FROM items": ITEMS})
+    out = await ask(graph, deps, "list items")
+    assert out["outcome"] == "answered"
+
+
+async def test_answer_llm_failure_still_returns_rows(graph, make_deps):
+    deps = make_deps(answer=RuntimeError("provider down"), results={"FROM items": ITEMS})
+    out = await ask(graph, deps, "list items")
+    assert out["outcome"] == "answered" and "2 row(s)" in out["answer"]
+
+
+async def test_second_question_resets_attempts(graph, make_deps):
+    # Regression for Architecture gotcha #1: state persists per thread, the loop fields must not
+    failing = make_deps(sql=[draft("SELECT x FROM nope")])
+    first = await ask(graph, failing, "q1", thread="same")
+    assert first["outcome"] == "gave_up"
+
+    ok = make_deps(results={"FROM items": ITEMS})
+    second = await ask(graph, ok, "q2", thread="same")
+    assert second["outcome"] == "answered" and second["attempts"] == 1
+    assert len(second["messages"]) == 4  # q1, give-up, q2, answer: history persists
+
+
+async def test_answer_sees_at_most_answer_rows(graph, make_deps):
+    many = (["n"], [(i,) for i in range(100)])
+    deps = make_deps(results={"FROM items": many})
+    await ask(graph, deps, "list items")
+    prompt = deps.answer_llm.prompts[0]
+    assert f"({settings.answer_rows - 1},)" in prompt and f"({settings.answer_rows},)" not in prompt
+
+
+async def test_dataset_isolation(graph, make_deps):
+    # A thread on dataset "shop" can't read dataset "zoo", even if the model tries
+    from conftest import make_dataset
+
+    deps = make_deps(
+        sql=[draft("SELECT name FROM zoo.items")],
+        datasets=[make_dataset("shop"), make_dataset("zoo")],
+    )
+    out = await ask(graph, deps, "list items")
+    assert out["outcome"] == "gave_up" and "'zoo' is not allowed" in out["error"]
+
+
+def test_scripted_llm_repeats_last():
+    llm = ScriptedLLM(1, 2)
+    import asyncio
+
+    assert [asyncio.run(llm.ainvoke("p")) for _ in range(3)] == [1, 2, 2]

@@ -1,0 +1,65 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_DB: askdata
+          POSTGRES_PASSWORD: postgres
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+
+    env:
+      # CI-only throwaway credentials for the service containers; no real secrets, no LLM key
+      APP_DB_PASSWORD: ci-app
+      READER_DB_PASSWORD: ci-reader
+      APP_DATABASE_URL: postgresql://askdata_app:ci-app@localhost:5432/askdata
+      READER_DATABASE_URL: postgresql://askdata_reader:ci-reader@localhost:5432/askdata
+      REDIS_URL: redis://localhost:6379/0
+      API_KEYS: ci-key
+      ADMIN_API_KEY: ci-admin
+      DEFAULT_DATASET: sales
+      LANGSMITH_TRACING: "false"
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --locked
+
+      - name: Lint
+        run: uv run ruff check . && uv run ruff format --check .
+
+      - name: No dataset names in src/ (ADR-009)
+        run: |
+          status=0
+          for dir in datasets/*/; do
+            name=$(basename "$dir")
+            if grep -rniw --include='*.py' "$name" src/; then
+              echo "::error::src/ mentions dataset '$name'; move it into datasets/$name/"; status=1
+            fi
+          done
+          exit $status
+
+      - name: Roles + migrations (same script docker compose runs)
+        env: {PGHOST: localhost, PGPASSWORD: postgres, POSTGRES_USER: postgres, POSTGRES_DB: askdata}
+        run: bash db/init/01_roles.sh && uv run python scripts/migrate.py
+
+      - name: Load datasets
+        run: |
+          uv run python scripts/load_dataset.py sales
+          uv run python scripts/fetch_ipl.py
+          uv run python scripts/load_dataset.py ipl
+
+      - name: Tests (unit, graph, red-team, integration; scripted LLMs only)
+        run: uv run pytest -q
