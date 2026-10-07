@@ -1,4 +1,4 @@
-"""Chat model + the three structured-output runnables the graph uses.
+"""Chat model + the four structured-output runnables the graph uses.
 
 Structured output (`with_structured_output`) makes the model return a validated Pydantic
 object. Groq models occasionally return invalid JSON for it (Architecture gotcha #6), so
@@ -75,20 +75,21 @@ def build_structured_llms_or_unavailable() -> tuple[dict[str, StructuredLLM], st
             reason = f"LLM could not be created: {type(e).__name__}: {e}"
     log.error(reason)
     stub = UnavailableLLM(reason)
-    return {"intent": stub, "sql": stub, "answer": stub}, reason
+    return {"intent": stub, "sql": stub, "answer": stub, "rewrite": stub}, reason
 
 
 def build_structured_llms() -> dict[str, StructuredLLM]:
-    """{"intent", "sql", "answer"} runnables for settings.llm_model (e.g. "groq:qwen/...")."""
+    """{"intent", "sql", "answer", "rewrite"} runnables for settings.llm_model."""
     from langchain.chat_models import init_chat_model
 
-    from ask_data.graph.models import FinalAnswer, Intent, SqlDraft
+    from ask_data.graph.models import FinalAnswer, Intent, SqlDraft, StandaloneQuestion
 
     llm = init_chat_model(settings.llm_model, temperature=0)
     return {
         "intent": llm.with_structured_output(Intent),
         "sql": llm.with_structured_output(SqlDraft),
         "answer": llm.with_structured_output(FinalAnswer),
+        "rewrite": llm.with_structured_output(StandaloneQuestion),
     }
 
 

@@ -5,13 +5,34 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 
+class StandaloneQuestion(BaseModel):
+    question: str = Field(
+        description="The user's latest request rewritten as one self-contained question that "
+        "can be understood without the conversation"
+    )
+
+
 class Intent(BaseModel):
-    # Phase 3 adds "clarify" (+ clarifying_question) for ambiguous questions
-    intent: Literal["sql", "decline"] = Field(
+    intent: Literal["sql", "clarify", "decline"] = Field(
         description="'sql' if the question can be answered from this dataset with a SELECT; "
+        "'clarify' if it has several reasonable readings that would give different answers; "
         "'decline' if it is off-topic, asks to change data, or asks about the system itself"
     )
     reason: str = Field(description="One short sentence explaining the choice")
+    readings: list[str] = Field(
+        default_factory=list,
+        description="Only for 'clarify': 2-3 different meanings of the question, each a short "
+        "phrase that completes 'Do you mean ...?' in terms of this dataset",
+    )
+    clarifying_question: str | None = Field(
+        default=None,
+        description="Only for 'clarify': the full question to ask the user, ending with '?'",
+    )
+    assumption: str | None = Field(
+        default=None,
+        description="Only for 'sql' when the question has more than one reasonable reading: "
+        "the reading you chose, in one short sentence",
+    )
 
 
 class SqlDraft(BaseModel):

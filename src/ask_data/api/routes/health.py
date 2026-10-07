@@ -35,6 +35,7 @@ async def ready(request: Request):
         "checks": checks,
         "llm_model": settings.llm_model,
         "llm": state.llm_status,
+        "embeddings": state.embeddings_status,
         "datasets": [ds.name for ds in state.deps.registry.all()],
     }
     return JSONResponse(body, status_code=200 if ok else 503)

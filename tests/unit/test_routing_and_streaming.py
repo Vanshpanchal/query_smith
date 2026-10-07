@@ -81,3 +81,45 @@ def test_json_safe():
     assert json_safe(Decimal("7.25")) == 7.25
     assert json_safe(date(2024, 1, 2)) == "2024-01-02"
     assert json_safe((1, Decimal("1.5"))) == [1, 1.5]
+
+
+def test_event_mapping_phase3():
+    m = EventMapper("qid")
+    assert m.feed({"contextualize": {"question": "Top items in 2024?"}}) == [
+        ("status", {"node": "contextualize", "message": "Question: Top items in 2024?",
+                    "question": "Top items in 2024?"}),
+    ]  # fmt: skip
+    assert m.feed({"select_tables": {"tables": ["a"], "table_selection": "retrieved"}}) == [
+        ("tables", {"tables": ["a"], "mode": "retrieved"})
+    ]
+    assert m.feed({"classify": {"intent": "clarify"}})[0][0] == "status"
+    events = m.feed({"__interrupt__": (Interrupt(value={"question": "Count or value?"}),)})
+    assert events == [("clarify", {"question": "Count or value?"})]
+    assert m.clarifying_question == "Count or value?"
+    assert m.feed({"clarify": {"clarification": "count"}}) == []  # resume: nothing to show
+
+
+def test_per_turn_reset_clears_clarification_fields():
+    inputs = per_turn_reset("shop", "q")
+    assert inputs["clarify_count"] == 0 and inputs["clarification"] is None
+    assert inputs["assumption"] is None and inputs["table_selection"] == "full"
+
+
+def test_clarifying_question_prefers_a_real_question_then_readings():
+    from ask_data.graph.models import Intent
+    from ask_data.graph.nodes import clarifying_question
+
+    def intent(question=None, readings=()):
+        return Intent(intent="clarify", reason="r", clarifying_question=question,
+                      readings=list(readings))  # fmt: skip
+
+    assert clarifying_question(intent("Do you mean runs or wickets?")) == (
+        "Do you mean runs or wickets?"
+    )
+    # a label instead of a question (seen with a real model): build it from the readings
+    built = clarifying_question(
+        intent("Best player", ["most runs", "most wickets?", "most awards"])
+    )
+    assert built == "Do you mean most runs, most wickets or most awards?"
+    assert clarifying_question(intent(None, ["a", "b", "c", "d"])) == "Do you mean a, b or c?"
+    assert clarifying_question(intent("Best player", ["only one"])) is None  # → answered as sql

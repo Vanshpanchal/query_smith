@@ -1,0 +1,209 @@
+# Sales golden set: question -> verified gold SQL (format: vault Testing.md, "Golden sets").
+# Every gold_sql was run as askdata_reader on the seeded synthetic data (scripts/make_sales_data.py)
+# and `expected` records the result. Data ends in December 2025. Rules the gold SQL follows are
+# the ones in datasets/sales/notes.md (revenue formula, excluded statuses, INITCAP(city)).
+# None of these questions appear in fewshots.yaml.
+
+- id: s001
+  question: Which is the most expensive product by list price?
+  gold_sql: |
+    SELECT name, price_inr
+    FROM sales.products
+    ORDER BY price_inr DESC
+    LIMIT 1
+  expected: 27in Monitor, 14999.00
+  category: lookup
+  split: test
+
+- id: s002
+  question: How many customers have a premium membership?
+  gold_sql: |
+    SELECT COUNT(*) AS premium_customers
+    FROM sales.customers
+    WHERE is_premium
+  expected: "36"
+  category: aggregation
+  split: test
+
+- id: s003
+  question: How many orders were placed through each channel?
+  gold_sql: |
+    SELECT channel, COUNT(*) AS orders
+    FROM sales.orders
+    GROUP BY channel
+    ORDER BY orders DESC
+  expected: app 209, web 174, phone 37
+  category: aggregation
+  split: test
+
+- id: s004
+  question: What was the total revenue in 2025?
+  gold_sql: |
+    SELECT SUM(oi.quantity * oi.unit_price - oi.discount) AS revenue
+    FROM sales.order_items oi
+    JOIN sales.orders o ON o.order_id = oi.order_id
+    WHERE o.order_date >= DATE '2025-01-01' AND o.order_date < DATE '2026-01-01'
+      AND o.status NOT IN ('cancelled', 'returned')
+  expected: "874514.00"
+  category: aggregation
+  split: test
+
+- id: s005
+  question: How many orders are there in each status?
+  gold_sql: |
+    SELECT status, COUNT(*) AS orders
+    FROM sales.orders
+    GROUP BY status
+    ORDER BY orders DESC
+  expected: delivered 287, shipped 42, returned 38, cancelled 37, placed 16
+  category: aggregation
+  split: test
+
+- id: s006
+  question: Which product category generated the most revenue?
+  gold_sql: |
+    SELECT p.category, SUM(oi.quantity * oi.unit_price - oi.discount) AS revenue
+    FROM sales.order_items oi
+    JOIN sales.orders o ON o.order_id = oi.order_id
+    JOIN sales.products p ON p.product_id = oi.product_id
+    WHERE o.status NOT IN ('cancelled', 'returned')
+    GROUP BY p.category
+    ORDER BY revenue DESC
+    LIMIT 1
+  expected: Electronics, 1051750.00
+  category: joins
+  split: test
+
+- id: s007
+  question: Which customer has spent the most in total?
+  gold_sql: |
+    SELECT c.name, SUM(oi.quantity * oi.unit_price - oi.discount) AS spend
+    FROM sales.order_items oi
+    JOIN sales.orders o ON o.order_id = oi.order_id
+    JOIN sales.customers c ON c.customer_id = o.customer_id
+    WHERE o.status NOT IN ('cancelled', 'returned')
+    GROUP BY c.customer_id, c.name
+    ORDER BY spend DESC
+    LIMIT 1
+  expected: Aditya Desai, 121413.00 (then Vivaan Reddy 99788.00)
+  category: joins
+  split: test
+
+- id: s008
+  question: Customers from which city generated the most revenue?
+  gold_sql: |
+    SELECT INITCAP(c.city) AS city, SUM(oi.quantity * oi.unit_price - oi.discount) AS revenue
+    FROM sales.order_items oi
+    JOIN sales.orders o ON o.order_id = oi.order_id
+    JOIN sales.customers c ON c.customer_id = o.customer_id
+    WHERE o.status NOT IN ('cancelled', 'returned') AND c.city IS NOT NULL
+    GROUP BY INITCAP(c.city)
+    ORDER BY revenue DESC
+    LIMIT 1
+  expected: Delhi, 416786.00
+  category: joins
+  split: test
+
+- id: s009
+  question: How many units of books were sold in 2024?
+  gold_sql: |
+    SELECT SUM(oi.quantity) AS units
+    FROM sales.order_items oi
+    JOIN sales.orders o ON o.order_id = oi.order_id
+    JOIN sales.products p ON p.product_id = oi.product_id
+    WHERE p.category = 'Books'
+      AND o.order_date >= DATE '2024-01-01' AND o.order_date < DATE '2025-01-01'
+      AND o.status NOT IN ('cancelled', 'returned')
+  expected: "78"
+  category: joins
+  split: test
+
+- id: s010
+  question: How many orders were placed in each month of 2025?
+  gold_sql: |
+    SELECT date_trunc('month', order_date)::date AS month, COUNT(*) AS orders
+    FROM sales.orders
+    WHERE order_date >= DATE '2025-01-01' AND order_date < DATE '2026-01-01'
+    GROUP BY 1
+    ORDER BY 1
+  expected: 12 rows, 2025-01 = 21 ... 2025-12 = 11
+  category: time
+  split: test
+
+- id: s011
+  question: What was the revenue in each quarter of 2024?
+  gold_sql: |
+    SELECT date_trunc('quarter', o.order_date)::date AS quarter,
+           SUM(oi.quantity * oi.unit_price - oi.discount) AS revenue
+    FROM sales.orders o
+    JOIN sales.order_items oi ON oi.order_id = o.order_id
+    WHERE o.order_date >= DATE '2024-01-01' AND o.order_date < DATE '2025-01-01'
+      AND o.status NOT IN ('cancelled', 'returned')
+    GROUP BY 1
+    ORDER BY 1
+  expected: 4 rows, Q1 66760.00, Q2 248906.00, Q3 174437.00, Q4 139265.00
+  category: time
+  split: test
+
+- id: s012
+  question: How many new customers signed up in each year?
+  gold_sql: |
+    SELECT EXTRACT(YEAR FROM signup_date) AS year, COUNT(*) AS customers
+    FROM sales.customers
+    GROUP BY 1
+    ORDER BY 1
+  expected: 2022 29, 2023 62, 2024 59
+  category: time
+  split: test
+
+- id: s013
+  question: What is the average order value?
+  gold_sql: |
+    SELECT ROUND(SUM(oi.quantity * oi.unit_price - oi.discount)
+                 / COUNT(DISTINCT o.order_id), 2) AS avg_order_value
+    FROM sales.orders o
+    JOIN sales.order_items oi ON oi.order_id = o.order_id
+    WHERE o.status NOT IN ('cancelled', 'returned')
+  expected: "6954.77"
+  category: domain
+  split: test
+
+- id: s014
+  question: What is the return rate for each sales channel?
+  gold_sql: |
+    SELECT channel,
+           ROUND(100.0 * COUNT(*) FILTER (WHERE status = 'returned') / COUNT(*), 1) AS return_rate_pct
+    FROM sales.orders
+    GROUP BY channel
+    ORDER BY channel
+  expected: app 8.1, phone 13.5, web 9.2
+  category: domain
+  split: test
+
+- id: s015
+  question: What is the best-selling product by revenue in each category?
+  gold_sql: |
+    WITH ranked AS (
+      SELECT p.category, p.name, SUM(oi.quantity * oi.unit_price - oi.discount) AS revenue,
+             RANK() OVER (PARTITION BY p.category
+                          ORDER BY SUM(oi.quantity * oi.unit_price - oi.discount) DESC) AS rnk
+      FROM sales.order_items oi
+      JOIN sales.orders o ON o.order_id = oi.order_id
+      JOIN sales.products p ON p.product_id = oi.product_id
+      WHERE o.status NOT IN ('cancelled', 'returned')
+      GROUP BY p.category, p.product_id, p.name
+    )
+    SELECT category, name, revenue
+    FROM ranked
+    WHERE rnk = 1
+    ORDER BY category
+  expected: 4 rows - Apparel Saree, Books Designing Data-Intensive Applications, Electronics 27in Monitor, Home Water Purifier
+  category: window/rank
+  split: test
+
+- id: s016
+  question: Who is our best customer?
+  expected_outcome: clarified
+  expected: best by total spend, number of orders, or premium membership?
+  category: ambiguous
+  split: test

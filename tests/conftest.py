@@ -13,7 +13,7 @@ import pytest
 from ask_data.config import settings
 from ask_data.datasets.config import DatasetCfg
 from ask_data.datasets.registry import Dataset, DatasetRegistry, Fewshot
-from ask_data.graph.models import FinalAnswer, Intent, SqlDraft
+from ask_data.graph.models import FinalAnswer, Intent, SqlDraft, StandaloneQuestion
 from ask_data.graph.nodes import AgentDeps
 from ask_data.schema.catalog import ColumnInfo, SchemaInfo, TableInfo
 from ask_data.sql.executor import QueryError, QueryResult
@@ -101,6 +101,16 @@ def draft(sql: str) -> SqlDraft:
 
 SQL_INTENT = Intent(intent="sql", reason="about the data")
 DECLINE_INTENT = Intent(intent="decline", reason="off-topic")
+
+
+def clarify_intent(question: str = "By count or by value?") -> Intent:
+    return Intent(intent="clarify", reason="ambiguous", clarifying_question=question)
+
+
+def rewrite(question: str) -> StandaloneQuestion:
+    return StandaloneQuestion(question=question)
+
+
 ANSWER = FinalAnswer(answer="The answer.")
 
 
@@ -113,14 +123,18 @@ def make_deps() -> Callable[..., AgentDeps]:
         results: dict[str, Any] | None = None,
         cost: float = 10.0,
         datasets: list[Dataset] | None = None,
+        rewrites: list[Any] | None = None,
+        retriever: Any = None,
     ) -> AgentDeps:
         datasets = datasets or [make_dataset()]
         return AgentDeps(
             registry=DatasetRegistry({d.name: d for d in datasets}),
             executor=FakeExecutor(results, cost),
-            intent_llm=ScriptedLLM(intent),
+            intent_llm=intent if isinstance(intent, ScriptedLLM) else ScriptedLLM(intent),
             sql_llm=ScriptedLLM(*(sql or [draft("SELECT name FROM items")])),
             answer_llm=ScriptedLLM(answer),
+            rewrite_llm=ScriptedLLM(*(rewrites or [rewrite("(rewritten)")])),
+            retriever=retriever,
         )
 
     return _make

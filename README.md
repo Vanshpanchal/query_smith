@@ -9,11 +9,15 @@ Full design docs live in the Second Brain vault — see `AI_CONTEXT.md` for the 
 
 ## Status
 
-Phase 2 (v1) — self-correcting, guarded API. `classify → select_tables → generate_sql →
-validate_sql (sqlglot guard + EXPLAIN cost cap) → execute_sql (read-only role) → check_result →
-answer`, with every check looping back to `generate_sql` (max 3 attempts) or to `give_up`.
-Works unchanged on every loaded dataset (`ipl`, `sales`, …). Next: Phase 3 (follow-ups,
-clarification, schema retrieval). Build plan: the vault's `Tasks.md`.
+Phase 3 (v2) — conversation, clarification, retrieval. `contextualize → classify → (decline |
+clarify | select_tables → generate_sql → validate_sql (sqlglot guard + EXPLAIN cost cap) →
+execute_sql (read-only role) → check_result → answer)`, with every check looping back to
+`generate_sql` (max 3 attempts) or to `give_up`. Follow-ups ("now only finals") are rewritten into
+standalone questions from the thread history; an ambiguous question pauses the run with one
+clarifying question (`interrupt()`), answered via `/resume`. Datasets above
+`SCHEMA_RETRIEVAL_MIN_TABLES` get pgvector table retrieval. Every run is logged in
+`app.query_log` and can be rated. Works unchanged on every loaded dataset (`ipl`, `sales`, …).
+Next: Phase 4 (evals, chart spec, cache, deploy). Build plan: the vault's `Tasks.md`.
 
 ## Quickstart
 
@@ -31,8 +35,26 @@ curl -N -X POST localhost:8000/api/v1/threads/$TID/ask -H "X-API-Key: dev-key" \
   -H "Content-Type: application/json" -d '{"question":"Top 5 run scorers of all time"}'
 ```
 
-SSE events: `status`, `tables`, `sql`, `retry`, `rows`, `answer`, `error`, `done`.
+```bash
+# follow-up on the same thread: rewritten to "Top 5 run scorers of all time in finals"
+curl -N -X POST localhost:8000/api/v1/threads/$TID/ask -H "X-API-Key: dev-key" \
+  -H "Content-Type: application/json" -d '{"question":"Only in finals"}'
+# an ambiguous question ends with a `clarify` event; answer it with /resume
+curl -N -X POST localhost:8000/api/v1/threads/$TID/ask -H "X-API-Key: dev-key" \
+  -H "Content-Type: application/json" -d '{"question":"Who is the best player?"}'
+curl -N -X POST localhost:8000/api/v1/threads/$TID/resume -H "X-API-Key: dev-key" \
+  -H "Content-Type: application/json" -d '{"reply":"most wickets"}'
+curl -s localhost:8000/api/v1/threads/$TID -H "X-API-Key: dev-key"     # history + pending question
+curl -s -X POST localhost:8000/api/v1/queries/<query_id>/feedback -H "X-API-Key: dev-key" \
+  -H "Content-Type: application/json" -d '{"rating":1}'                # 👍 / 👎 (-1)
+```
+
+SSE events: `status`, `tables`, `sql`, `retry`, `rows`, `clarify`, `answer`, `error`, `done`.
 Non-streaming: `POST /api/v1/ask {"question", "dataset"?, "thread_id"?}`.
+
+Schema cards: `make load` ends with `scripts/index_schema.py <dataset>` (Gemini embeddings, needs
+`GOOGLE_API_KEY`; `--model hashing` is a key-free lexical fallback). Without cards the agent sends
+the full schema.
 
 ## Tests
 

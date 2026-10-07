@@ -1,11 +1,13 @@
 """Paths through the compiled graph with scripted LLMs and a fake executor (no DB, no API key)."""
 
 import pytest
-from conftest import DECLINE_INTENT, ScriptedLLM, draft
+from conftest import DECLINE_INTENT, SQL_INTENT, ScriptedLLM, clarify_intent, draft, rewrite
 from langgraph.checkpoint.memory import InMemorySaver
+from langgraph.types import Command
 
 from ask_data.config import settings
 from ask_data.graph.builder import build_graph
+from ask_data.graph.models import Intent
 from ask_data.graph.state import per_turn_reset
 from ask_data.sql.executor import QueryError
 
@@ -163,3 +165,141 @@ def test_scripted_llm_repeats_last():
     import asyncio
 
     assert [asyncio.run(llm.ainvoke("p")) for _ in range(3)] == [1, 2, 2]
+
+
+# --- Phase 3: follow-ups, clarification, schema retrieval -----------------------------------
+
+
+async def test_first_question_skips_contextualize_llm(graph, make_deps):
+    deps = make_deps(results={"FROM items": ITEMS})
+    out = await ask(graph, deps, "list items")
+    assert out["question"] == "list items" and deps.rewrite_llm.prompts == []
+
+
+async def test_follow_up_is_rewritten_with_history_and_last_sql(graph, make_deps):
+    deps = make_deps(
+        sql=[draft("SELECT name FROM items"), draft("SELECT name FROM items WHERE id > 1")],
+        results={"FROM items": ITEMS},
+        rewrites=[rewrite("List items with id above 1")],
+    )
+    await ask(graph, deps, "list items", thread="f")
+    out = await ask(graph, deps, "now only id above 1", thread="f")
+
+    assert out["question"] == "List items with id above 1"
+    history = deps.rewrite_llm.prompts[0]
+    assert "User: list items" in history and "Assistant: The answer." in history
+    assert "User: now only id above 1" in history
+    assert "SELECT name FROM items LIMIT 1000" in history  # last_sql of turn 1
+    sql_prompt = deps.sql_llm.prompts[1]
+    assert "Question: List items with id above 1" in sql_prompt
+    assert "SQL of the previous question" in sql_prompt
+    assert out["last_sql"] == "SELECT name FROM items WHERE id > 1 LIMIT 1000"
+
+
+async def test_contextualize_failure_falls_back_to_the_raw_question(graph, make_deps):
+    deps = make_deps(results={"FROM items": ITEMS}, rewrites=[RuntimeError("provider down")])
+    await ask(graph, deps, "list items", thread="f2")
+    out = await ask(graph, deps, "and again", thread="f2")
+    assert out["outcome"] == "answered" and out["question"] == "and again"
+
+
+async def test_clarify_then_resume(graph, make_deps):
+    deps = make_deps(
+        intent=ScriptedLLM(clarify_intent("By count or by value?"), SQL_INTENT),
+        results={"FROM items": ITEMS},
+        rewrites=[rewrite("Which items sell best by count?")],
+    )
+    paused = await ask(graph, deps, "best items?", thread="c")
+    assert paused["__interrupt__"][0].value == {"question": "By count or by value?"}
+    snapshot = await graph.aget_state(cfg("c"))
+    assert snapshot.interrupts and snapshot.next == ("clarify",)
+    assert deps.sql_llm.prompts == []  # nothing ran past the pause
+
+    out = await graph.ainvoke(Command(resume="by count"), cfg("c"), context=deps)
+    assert out["outcome"] == "answered" and out["clarify_count"] == 1
+    assert out["clarification"] == "by count"
+    assert out["question"] == "Which items sell best by count?"
+    contents = [m.content for m in out["messages"]]
+    assert contents[:3] == ["best items?", "By count or by value?", "by count"]
+    assert "User: by count" in deps.rewrite_llm.prompts[0]
+    assert not (await graph.aget_state(cfg("c"))).interrupts
+
+
+async def test_only_one_clarification_per_turn(graph, make_deps):
+    # The model keeps asking; after one clarification classify must go to SQL (ADR-008)
+    deps = make_deps(
+        intent=ScriptedLLM(clarify_intent(), clarify_intent()),
+        results={"FROM items": ITEMS},
+    )
+    await ask(graph, deps, "best items?", thread="c2")
+    out = await graph.ainvoke(Command(resume="by value"), cfg("c2"), context=deps)
+    assert out["outcome"] == "answered" and out["clarify_count"] == 1
+    assert "clarify" + '" is NOT' in deps.intent_llm.prompts[1].replace("\n", " ")
+    assert "clarify" + '" is NOT' not in deps.intent_llm.prompts[0].replace("\n", " ")
+
+
+async def test_assumption_reaches_sql_and_answer(graph, make_deps):
+    chosen = Intent(intent="sql", reason="ambiguous", assumption="best = most orders")
+    deps = make_deps(intent=chosen, results={"FROM items": ITEMS})
+    out = await ask(graph, deps, "best items?")
+    assert out["assumption"] == "best = most orders"
+    assert (
+        "Interpretation to use (the question was ambiguous): best = most orders"
+        in (deps.sql_llm.prompts[0])
+    )
+    assert "answered as: best = most orders" in deps.answer_llm.prompts[0]
+
+
+async def test_new_question_on_a_paused_thread_starts_a_new_turn(graph, make_deps):
+    deps = make_deps(
+        intent=ScriptedLLM(clarify_intent(), SQL_INTENT), results={"FROM items": ITEMS}
+    )
+    await ask(graph, deps, "best items?", thread="c3")
+    out = await ask(graph, deps, "list items", thread="c3")
+    assert out["outcome"] == "answered" and out["clarify_count"] == 0
+    assert out.get("clarifying_question") is None
+    assert not (await graph.aget_state(cfg("c3"))).interrupts
+
+
+class FakeRetriever:
+    def __init__(self, result):
+        self.result, self.calls = result, []
+
+    async def search(self, dataset: str, question: str, k: int) -> list[str]:
+        self.calls.append((dataset, question, k))
+        if isinstance(self.result, Exception):
+            raise self.result
+        return self.result
+
+
+async def test_small_dataset_skips_retrieval(graph, make_deps):
+    retriever = FakeRetriever(["orders"])
+    deps = make_deps(results={"FROM items": ITEMS}, retriever=retriever)
+    out = await ask(graph, deps, "list items")
+    assert out["table_selection"] == "full" and retriever.calls == []
+
+
+async def test_retrieval_with_fk_expansion(graph, make_deps, monkeypatch):
+    monkeypatch.setattr(settings, "schema_retrieval_min_tables", 1)
+    retriever = FakeRetriever(["orders"])
+    deps = make_deps(results={"FROM items": ITEMS}, retriever=retriever)
+    out = await ask(graph, deps, "list items")
+    assert out["table_selection"] == "retrieved"
+    assert out["tables"] == ["orders", "items"]  # orders.item_id → items joined in
+    assert retriever.calls == [("shop", "list items", settings.schema_retrieval_top_k)]
+
+
+@pytest.mark.parametrize("result", [[], RuntimeError("pgvector down")])
+async def test_retrieval_problem_falls_back_to_full_schema(graph, make_deps, monkeypatch, result):
+    monkeypatch.setattr(settings, "schema_retrieval_min_tables", 1)
+    deps = make_deps(results={"FROM items": ITEMS}, retriever=FakeRetriever(result))
+    out = await ask(graph, deps, "list items")
+    assert out["outcome"] == "answered" and out["table_selection"] == "full"
+    assert out["tables"] == ["items", "orders"]
+
+
+async def test_unusable_clarification_is_answered_instead(graph, make_deps):
+    label_only = Intent(intent="clarify", reason="ambiguous", clarifying_question="Best item")
+    deps = make_deps(intent=label_only, results={"FROM items": ITEMS})
+    out = await ask(graph, deps, "best item?")
+    assert out["outcome"] == "answered" and not out.get("__interrupt__")

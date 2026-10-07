@@ -33,7 +33,9 @@ class Settings(BaseSettings):
     # No dataset is named in code (ADR-009): the default comes from DEFAULT_DATASET in .env
     default_dataset: str | None = None
     datasets_dir: str = "datasets/"
-    schema_retrieval_min_tables: int = 8
+    schema_retrieval_min_tables: int = 8  # datasets with more tables use pgvector retrieval
+    schema_retrieval_top_k: int = 4
+    history_messages: int = 8  # recent messages `contextualize` sees for follow-ups
 
     langsmith_tracing: bool = True
     langsmith_api_key: str = ""

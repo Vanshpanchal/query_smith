@@ -7,13 +7,14 @@ from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from psycopg.rows import dict_row
 from psycopg_pool import AsyncConnectionPool
 
-from ask_data.api.routes import datasets, health, threads
+from ask_data.api.routes import datasets, health, queries, threads
 from ask_data.api.security import RateLimiter
 from ask_data.config import settings
 from ask_data.datasets.registry import DatasetRegistry
 from ask_data.graph.builder import build_graph
 from ask_data.graph.nodes import AgentDeps
 from ask_data.llm import build_structured_llms_or_unavailable, export_provider_env
+from ask_data.schema.retrieval import PgVectorRetriever, build_embedder
 from ask_data.sql.executor import SqlExecutor, reset_session
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -48,12 +49,17 @@ async def lifespan(app: FastAPI):
             registry = await DatasetRegistry.load(settings.datasets_dir, conn)
 
         llms, app.state.llm_status = build_structured_llms_or_unavailable()
+        # Schema retrieval only matters for datasets above SCHEMA_RETRIEVAL_MIN_TABLES; without an
+        # embedder select_tables sends the full schema
+        embedder, app.state.embeddings_status = build_embedder()
         app.state.deps = AgentDeps(
             registry=registry,
             executor=SqlExecutor(reader_pool, settings.statement_timeout_ms),
             intent_llm=llms["intent"],
             sql_llm=llms["sql"],
             answer_llm=llms["answer"],
+            rewrite_llm=llms["rewrite"],
+            retriever=PgVectorRetriever(app_pool, embedder) if embedder else None,
         )
         app.state.graph = build_graph(checkpointer)
         app.state.app_pool, app.state.reader_pool, app.state.redis = app_pool, reader_pool, redis
@@ -70,3 +76,4 @@ app.include_router(health.router)
 app.include_router(datasets.router)
 app.include_router(datasets.admin_router)
 app.include_router(threads.router)
+app.include_router(queries.router)

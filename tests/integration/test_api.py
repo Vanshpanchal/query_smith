@@ -8,7 +8,7 @@ import json
 
 import httpx
 import pytest
-from conftest import ANSWER, SQL_INTENT, ScriptedLLM, draft, requires_db
+from conftest import ANSWER, SQL_INTENT, ScriptedLLM, clarify_intent, draft, requires_db, rewrite
 from psycopg.rows import tuple_row
 
 from ask_data.api.security import RateLimiter
@@ -41,14 +41,21 @@ async def client():
         async with app.state.app_pool.connection() as conn:  # clean up test threads
             for tid in created:
                 await app.state.graph.checkpointer.adelete_thread(tid)
+                await conn.execute(
+                    "DELETE FROM app.feedback WHERE query_id IN "
+                    "(SELECT id FROM app.query_log WHERE thread_id = %s)",
+                    (tid,),
+                )
+                await conn.execute("DELETE FROM app.query_log WHERE thread_id = %s", (tid,))
                 await conn.execute("DELETE FROM app.threads WHERE thread_id = %s", (tid,))
 
 
-def script_llms(sql_drafts) -> None:
+def script_llms(sql_drafts, intents=(SQL_INTENT,), rewrites=("(rewritten)",)) -> None:
     deps = app.state.deps
-    deps.intent_llm = ScriptedLLM(SQL_INTENT)
+    deps.intent_llm = ScriptedLLM(*intents)
     deps.sql_llm = ScriptedLLM(*[draft(s) for s in sql_drafts])
     deps.answer_llm = ScriptedLLM(ANSWER)
+    deps.rewrite_llm = ScriptedLLM(*[rewrite(q) for q in rewrites])
 
 
 def parse_sse(text: str) -> list[tuple[str, dict]]:
@@ -192,3 +199,154 @@ async def test_admin_reload_requires_admin_key(client):
             "/admin/datasets/reload", headers={"X-API-Key": settings.admin_api_key}
         )
         assert r.status_code == 200 and r.json()["datasets"]
+
+
+# --- Phase 3: clarify → resume, follow-ups, thread view, query log, feedback, retrieval -------
+
+
+def any_dataset():
+    ds = app.state.deps.registry.get(min(d.name for d in app.state.deps.registry.all()))
+    return ds, f"SELECT COUNT(*) AS n FROM {ds.schema}.{min(ds.tables)}"
+
+
+async def log_rows(thread_id: str) -> list[tuple]:
+    async with app.state.app_pool.connection() as conn, conn.cursor(row_factory=tuple_row) as cur:
+        await cur.execute(
+            "SELECT outcome, attempts, final_sql, row_count, model FROM app.query_log "
+            "WHERE thread_id = %s ORDER BY created_at",
+            (thread_id,),
+        )
+        return await cur.fetchall()
+
+
+async def test_clarify_then_resume_over_http(client):
+    ds, count_sql = any_dataset()
+    tid = await new_thread(client, ds.name)
+    script_llms([count_sql], intents=(clarify_intent("Do you mean rows or tables?"), SQL_INTENT),
+                rewrites=("How many rows are there?",))  # fmt: skip
+
+    r = await client.post(f"/api/v1/threads/{tid}/ask", json={"question": "How big?"}, headers=AUTH)
+    names = [n for n, _ in parse_sse(r.text)]
+    assert names[-2:] == ["clarify", "done"] and "answer" not in names
+    assert dict(parse_sse(r.text))["clarify"] == {"question": "Do you mean rows or tables?"}
+
+    view = (await client.get(f"/api/v1/threads/{tid}", headers=AUTH)).json()
+    assert view["pending_clarification"] == "Do you mean rows or tables?"
+    assert view["last_query"]["outcome"] == "clarified"
+
+    r = await client.post(f"/api/v1/threads/{tid}/resume", json={"reply": "rows"}, headers=AUTH)
+    events = parse_sse(r.text)
+    flow = [n for n, _ in events if n not in {"status", "tables"}]
+    assert flow == ["sql", "rows", "answer", "done"], events
+    status = [d for n, d in events if n == "status" and d["node"] == "contextualize"]
+    assert status[0]["question"] == "How many rows are there?"
+
+    view = (await client.get(f"/api/v1/threads/{tid}", headers=AUTH)).json()
+    assert view["pending_clarification"] is None
+    assert [m["content"] for m in view["messages"]][:3] == [
+        "How big?",
+        "Do you mean rows or tables?",
+        "rows",
+    ]
+    assert [row[0] for row in await log_rows(tid)] == ["clarified", "answered"]
+
+
+async def test_resume_errors(client):
+    ds, _ = any_dataset()
+    tid = await new_thread(client, ds.name)
+    r = await client.post(f"/api/v1/threads/{tid}/resume", json={"reply": "x"}, headers=AUTH)
+    assert r.status_code == 409
+    r = await client.post("/api/v1/threads/nope/resume", json={"reply": "x"}, headers=AUTH)
+    assert r.status_code == 404
+    assert (await client.get("/api/v1/threads/nope", headers=AUTH)).status_code == 404
+
+
+async def test_follow_up_and_thread_view(client):
+    ds, count_sql = any_dataset()
+    tid = await new_thread(client, ds.name)
+    script_llms([count_sql, count_sql + " WHERE false"], rewrites=("Count with no rows?",))
+    for q in ("How many rows?", "now with no rows"):
+        r = await client.post(f"/api/v1/threads/{tid}/ask", json={"question": q}, headers=AUTH)
+        assert parse_sse(r.text)[-1][0] == "done"
+
+    sql_prompt = app.state.deps.sql_llm.prompts[1]
+    assert "Question: Count with no rows?" in sql_prompt and count_sql in sql_prompt
+    view = (await client.get(f"/api/v1/threads/{tid}", headers=AUTH)).json()
+    assert [m["role"] for m in view["messages"]] == ["user", "assistant"] * 2
+    assert view["last_sql"].endswith("WHERE FALSE LIMIT 1000")  # normalized by the guard
+    rows = await log_rows(tid)
+    assert [r[0] for r in rows] == ["answered", "answered"]
+    assert rows[0][2].startswith("SELECT COUNT(*)") and rows[0][3] == 1
+    assert rows[0][4] == settings.llm_model
+
+
+async def test_feedback(client):
+    ds, count_sql = any_dataset()
+    script_llms([count_sql])
+    body = (
+        await client.post("/api/v1/ask", json={"question": "How many?", "dataset": ds.name},
+                          headers=AUTH)
+    ).json()  # fmt: skip
+    client.created_threads.append(body["thread_id"])
+    qid = body["query_id"]
+
+    url = f"/api/v1/queries/{qid}/feedback"
+    assert (await client.post(url, json={"rating": 1}, headers=AUTH)).status_code == 200
+    r = await client.post(url, json={"rating": -1, "comment": "wrong"}, headers=AUTH)
+    assert r.json() == {"query_id": qid, "rating": -1}
+    async with app.state.app_pool.connection() as conn, conn.cursor(row_factory=tuple_row) as cur:
+        await cur.execute("SELECT rating, comment FROM app.feedback WHERE query_id = %s", (qid,))
+        assert await cur.fetchall() == [(-1, "wrong")]  # replaced, not duplicated
+
+    unknown = "/api/v1/queries/00000000-0000-0000-0000-000000000000/feedback"
+    assert (await client.post(unknown, json={"rating": 1}, headers=AUTH)).status_code == 404
+    bad = await client.post(url, json={"rating": 5}, headers=AUTH)
+    assert bad.status_code == 422
+    assert (await client.post("/api/v1/queries/x/feedback", json={"rating": 1},
+                              headers=AUTH)).status_code == 422  # fmt: skip
+
+
+async def test_one_shot_ask_reports_clarification(client):
+    ds, count_sql = any_dataset()
+    script_llms([count_sql], intents=(clarify_intent("Do you mean rows or tables?"),))
+    r = await client.post("/api/v1/ask", json={"question": "How big?", "dataset": ds.name},
+                          headers=AUTH)  # fmt: skip
+    body = r.json()
+    client.created_threads.append(body["thread_id"])
+    assert (
+        body["outcome"] == "clarified"
+        and body["clarifying_question"] == "Do you mean rows or tables?"
+    )
+    assert body["answer"] is None and body["sql"] is None
+
+
+async def test_pgvector_retrieval_on_real_cards(client):
+    """Cards of a real dataset, stored under a throwaway name, searched with real pgvector."""
+    if not loaded("ipl"):
+        pytest.skip("dataset 'ipl' not loaded")
+    from ask_data.schema.cards import build_cards
+    from ask_data.schema.retrieval import (
+        HashingEmbedder,
+        PgVectorRetriever,
+        expand_with_fks,
+        upsert_cards,
+    )  # fmt: skip
+
+    ds, name, emb = app.state.deps.registry.get("ipl"), "pytest_cards", HashingEmbedder()
+    async with app.state.app_pool.connection() as conn:
+        await conn.execute(
+            "INSERT INTO app.datasets (name, schema_name, title, version, table_count, row_count)"
+            " VALUES (%s, %s, 't', 'v', 0, 0) ON CONFLICT (name) DO NOTHING",
+            (name, name),
+        )
+        try:
+            cards = await build_cards(conn, ds.schema_info)
+            await upsert_cards(conn, name, cards, await emb.embed_documents(list(cards.values())),
+                               emb.model)  # fmt: skip
+            hits = await PgVectorRetriever(app.state.app_pool, emb).search(
+                name, "Which bowler took the most wickets, by wicket kind?", 2
+            )
+        finally:
+            await conn.execute("DELETE FROM app.datasets WHERE name = %s", (name,))  # cascades
+    assert hits[0] == "deliveries", hits
+    assert {"deliveries", "players"} <= set(expand_with_fks(hits, ds.schema_info))

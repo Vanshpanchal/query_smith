@@ -1,7 +1,6 @@
-"""Phase 2 graph: classify → (decline | select_tables → generate → validate → execute → check
-→ answer), with every check able to loop back to generate_sql (repair) or stop (give_up).
-
-Phase 3 adds contextualize (before classify) and the clarify interrupt.
+"""The agent graph: contextualize → classify → (decline | clarify | select_tables → generate →
+validate → execute → check → answer). Every check can loop back to generate_sql (repair) or stop
+(give_up). `clarify` pauses the run with interrupt(); the reply resumes it at contextualize.
 """
 
 from langgraph.graph import END, START, StateGraph
@@ -10,7 +9,9 @@ from ask_data.graph.nodes import (
     AgentDeps,
     answer,
     check_result,
+    clarify,
     classify,
+    contextualize,
     decline,
     execute_sql,
     generate_sql,
@@ -28,14 +29,18 @@ def _check(ok: str) -> dict[str, str]:
 
 def build_graph(checkpointer=None):
     g = StateGraph(AskState, context_schema=AgentDeps)
-    for fn in (classify, decline, select_tables, generate_sql, validate_sql, execute_sql,
-               check_result, answer, give_up):  # fmt: skip
+    for fn in (contextualize, classify, clarify, decline, select_tables, generate_sql,
+               validate_sql, execute_sql, check_result, answer, give_up):  # fmt: skip
         g.add_node(fn.__name__, fn)
 
-    g.add_edge(START, "classify")
+    g.add_edge(START, "contextualize")
+    g.add_edge("contextualize", "classify")
     g.add_conditional_edges(
-        "classify", route_intent, {"sql": "select_tables", "decline": "decline"}
+        "classify",
+        route_intent,
+        {"sql": "select_tables", "clarify": "clarify", "decline": "decline"},
     )
+    g.add_edge("clarify", "contextualize")  # the reply may change the question
     g.add_edge("select_tables", "generate_sql")
     g.add_conditional_edges("generate_sql", route_after_check, _check("validate_sql"))
     g.add_conditional_edges("validate_sql", route_after_check, _check("execute_sql"))

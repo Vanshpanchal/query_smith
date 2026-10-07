@@ -16,14 +16,17 @@ class ChartSpec(TypedDict):
 class AskState(TypedDict, total=False):
     dataset: str  # set once when the thread is created; never changes
     messages: Annotated[list[AnyMessage], add_messages]  # persists across turns
-    last_sql: str | None  # persists across turns (follow-ups, Phase 3)
+    last_sql: str | None  # persists across turns (follow-ups)
 
-    # --- per-turn fields: reset by the API on every new question (PER_TURN_RESET) ---
-    question: str  # standalone question (Phase 3: rewritten by `contextualize`)
+    # --- per-turn fields: reset by the API on every new question (per_turn_reset) ---
+    question: str  # the user's question; `contextualize` rewrites it into a standalone one
     intent: Literal["sql", "clarify", "decline"]
     clarifying_question: str | None
-    clarify_count: int
+    clarification: str | None  # the user's reply to the clarifying question
+    clarify_count: int  # at most 1 per turn (ADR-008)
+    assumption: str | None  # reading chosen for an ambiguous question; the answer states it
     tables: list[str]
+    table_selection: Literal["full", "retrieved"]
     schema_context: str
     reasoning: str | None
     sql: str | None
@@ -54,8 +57,11 @@ def per_turn_reset(dataset: str, question: str) -> dict:
         "question": question,
         "intent": "sql",
         "clarifying_question": None,
+        "clarification": None,
         "clarify_count": 0,
+        "assumption": None,
         "tables": [],
+        "table_selection": "full",
         "schema_context": "",
         "reasoning": None,
         "sql": None,

@@ -30,13 +30,16 @@ class EventMapper:
         self.attempt = 0
         self.sql: str | None = None
         self.final: dict[str, Any] | None = None
+        self.clarifying_question: str | None = None  # set when the run paused for a reply
+        self.error: str | None = None  # set by run_turn when the run failed
 
     def feed(self, chunk: dict[str, Any]) -> list[Event]:
         events: list[Event] = []
         for node, update in chunk.items():
             if node == "__interrupt__":
                 for intr in update:
-                    events.append(("clarify", {"question": _interrupt_question(intr)}))
+                    self.clarifying_question = _interrupt_question(intr)
+                    events.append(("clarify", {"question": self.clarifying_question}))
                 continue
             update = update or {}
             if "attempts" in update:
@@ -50,10 +53,15 @@ class EventMapper:
         if node in CHECK_STAGE and update.get("error"):
             return [("retry", {"stage": CHECK_STAGE[node], "error": update["error"],
                                "attempt": self.attempt})]  # fmt: skip
+        if node == "contextualize":
+            question = update.get("question")
+            return [("status", {"node": node, "message": f"Question: {question}",
+                                "question": question})]  # fmt: skip
         if node in STATUS:
             return [("status", {"node": node, "message": STATUS[node]})]
         if node == "select_tables":
-            return [("tables", {"tables": update.get("tables", [])})]
+            return [("tables", {"tables": update.get("tables", []),
+                                "mode": update.get("table_selection", "full")})]  # fmt: skip
         if node == "generate_sql":
             return [("sql", {"sql": update.get("sql"), "attempt": self.attempt,
                              "reasoning": update.get("reasoning")})]  # fmt: skip
@@ -96,5 +104,6 @@ async def run_turn(
                 yield event
     except Exception as e:  # LLM provider down, DB down, bug
         log.exception("graph run failed")
-        yield ("error", {"message": f"{type(e).__name__}: {e}"})
+        mapper.error = f"{type(e).__name__}: {e}"
+        yield ("error", {"message": mapper.error})
     yield ("done", {})
