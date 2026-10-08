@@ -4,91 +4,238 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>AskData</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%232f5bd3'/%3E%3Cpath d='M9 22V14M16 22V9M23 22v-5' stroke='white' stroke-width='3' stroke-linecap='round'/%3E%3C/svg%3E">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.js"></script>
 <style>
   :root {
-    --bg: #f7f7f5; --panel: #ffffff; --text: #1d1d1b; --muted: #6b6b66; --line: #e3e2dc;
-    --accent: #2f5bd3; --accent-text: #ffffff; --ok: #1f7a46; --warn: #a35a00; --bad: #b42318;
-    --code: #f1f0eb; --chart: #2f5bd3;
+    --bg: #f6f6f3; --panel: #ffffff; --panel-2: #fbfbf9; --text: #1b1b19; --muted: #6a6a64;
+    --faint: #9a9a93; --line: #e4e3dd; --line-strong: #d3d2ca;
+    --accent: #2f5bd3; --accent-soft: #e8eefc; --accent-text: #ffffff;
+    --ok: #1f7a46; --ok-soft: #e5f4ea; --warn: #9a5a00; --warn-soft: #fbf0dc;
+    --bad: #b42318; --bad-soft: #fde9e7; --code: #f3f2ee;
+    --c1: #2f5bd3; --c2: #e07a2e; --c3: #1f9e74; --c4: #c2417d; --c5: #7a5bd3; --c6: #c9a227;
+    --c7: #3a9fbf; --c8: #8a8a83;
+    --shadow: 0 1px 2px rgba(20, 20, 18, .04), 0 4px 16px rgba(20, 20, 18, .05);
+    --radius: 14px;
   }
   @media (prefers-color-scheme: dark) {
     :root {
-      --bg: #151514; --panel: #1e1e1c; --text: #ecebe6; --muted: #9b9a93; --line: #2f2f2c;
-      --accent: #7c9cff; --accent-text: #10131c; --ok: #5fc48a; --warn: #f0a447; --bad: #ff7a6e;
-      --code: #262624; --chart: #7c9cff;
+      --bg: #121211; --panel: #1b1b1a; --panel-2: #20201e; --text: #ecebe6; --muted: #a09f98;
+      --faint: #74736d; --line: #2c2c29; --line-strong: #3a3a36;
+      --accent: #7c9cff; --accent-soft: #1f2a46; --accent-text: #0f1320;
+      --ok: #5fc48a; --ok-soft: #16301f; --warn: #f0a447; --warn-soft: #33270f;
+      --bad: #ff7a6e; --bad-soft: #3a1714; --code: #232321;
+      --c1: #7c9cff; --c2: #f29a55; --c3: #4cc79c; --c4: #e46aa4; --c5: #a68cff; --c6: #e3c254;
+      --c7: #63c1df; --c8: #9a9a93;
+      --shadow: 0 1px 2px rgba(0, 0, 0, .3), 0 4px 16px rgba(0, 0, 0, .25);
     }
   }
   * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
   body { margin: 0; background: var(--bg); color: var(--text);
-         font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
-  header { border-bottom: 1px solid var(--line); background: var(--panel); }
-  .bar { max-width: 920px; margin: 0 auto; padding: 12px 16px; display: flex; gap: 12px;
-         align-items: center; flex-wrap: wrap; }
-  h1 { font-size: 17px; margin: 0 auto 0 0; letter-spacing: -0.01em; }
-  h1 span { color: var(--muted); font-weight: 400; }
-  select, input, button, textarea { font: inherit; color: inherit; }
-  select, input[type=password], textarea { background: var(--bg); border: 1px solid var(--line);
-         border-radius: 8px; padding: 7px 10px; }
-  button { border: 1px solid var(--line); background: var(--panel); border-radius: 8px;
-           padding: 7px 12px; cursor: pointer; }
-  button.primary { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
-  button:disabled { opacity: .5; cursor: default; }
-  main { max-width: 920px; margin: 0 auto; padding: 16px 16px 140px; }
-  .empty { color: var(--muted); padding: 40px 0; text-align: center; }
-  .turn { margin: 0 0 20px; }
-  .q { font-weight: 600; margin: 0 0 8px; }
-  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
-          padding: 14px 16px; }
-  .status { color: var(--muted); font-size: 13px; margin: 2px 0; }
-  .status.retry { color: var(--warn); }
-  .status.error { color: var(--bad); }
-  .answer { font-size: 16px; margin: 10px 0 6px; white-space: pre-wrap; }
-  .answer.gave_up, .answer.declined { color: var(--muted); }
-  .clarify { margin-top: 10px; padding: 10px 12px; border-left: 3px solid var(--accent);
-             background: var(--bg); border-radius: 0 8px 8px 0; }
-  details { margin-top: 8px; }
-  summary { cursor: pointer; color: var(--muted); font-size: 13px; }
-  pre { background: var(--code); padding: 10px 12px; border-radius: 8px; overflow-x: auto;
-        font: 12.5px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; margin: 6px 0 0; }
-  .tablewrap { overflow-x: auto; margin-top: 8px; max-height: 320px; overflow-y: auto; }
+         font: 15px/1.55 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
+  button, select, input, textarea { font: inherit; color: inherit; }
+  button { cursor: pointer; }
+  button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-visible,
+  summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .wrap { max-width: 880px; margin: 0 auto; padding: 0 16px; }
+
+  /* Header */
+  header { position: sticky; top: 0; z-index: 10; background: color-mix(in srgb, var(--panel) 88%, transparent);
+           backdrop-filter: saturate(1.4) blur(10px); border-bottom: 1px solid var(--line); }
+  .top { display: flex; align-items: center; gap: 10px; height: 58px; }
+  .brand { display: flex; align-items: center; gap: 10px; margin-right: auto; min-width: 0; }
+  .brand svg { flex: none; }
+  .brand b { font-size: 16px; letter-spacing: -0.01em; }
+  .brand span { color: var(--muted); font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .select { position: relative; }
+  .select select { appearance: none; background: var(--panel-2); border: 1px solid var(--line);
+                   border-radius: 10px; padding: 7px 30px 7px 12px; max-width: 220px; }
+  .select::after { content: ""; position: absolute; right: 12px; top: 50%; width: 7px; height: 7px;
+                   border-right: 1.5px solid var(--muted); border-bottom: 1.5px solid var(--muted);
+                   transform: translateY(-70%) rotate(45deg); pointer-events: none; }
+  .btn { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--line);
+         background: var(--panel); border-radius: 10px; padding: 7px 12px; white-space: nowrap; }
+  .btn:hover { border-color: var(--line-strong); }
+  .btn.icon { padding: 7px 9px; }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
+  .btn:disabled { opacity: .5; cursor: default; }
+  .settings { position: relative; }
+  .settings summary { list-style: none; }
+  .settings summary::-webkit-details-marker { display: none; }
+  .settings .pop { position: absolute; right: 0; top: calc(100% + 8px); width: 280px; padding: 14px;
+                   background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
+                   box-shadow: var(--shadow); }
+  .pop label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 6px; }
+  .pop input { width: 100%; background: var(--panel-2); border: 1px solid var(--line);
+               border-radius: 8px; padding: 8px 10px; }
+  .pop p { margin: 8px 0 0; font-size: 12px; color: var(--muted); }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--faint); display: inline-block; }
+  .dot.ok { background: var(--ok); } .dot.bad { background: var(--bad); }
+
+  /* Conversation */
+  main { padding: 24px 0 170px; }
+  .hero { padding: 40px 0 8px; }
+  .hero h2 { font-size: 26px; letter-spacing: -0.02em; margin: 0 0 8px; }
+  .hero p { color: var(--muted); margin: 0 0 22px; max-width: 70ch; }
+  .label { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--faint); margin: 0 0 10px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; }
+  .chip { border: 1px solid var(--line); background: var(--panel); border-radius: 999px;
+          padding: 7px 14px; font-size: 14px; text-align: left; box-shadow: var(--shadow); }
+  .chip:hover { border-color: var(--accent); color: var(--accent); }
+  .tips { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; margin-top: 28px; }
+  .tip { border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; background: var(--panel-2);
+         font-size: 13px; color: var(--muted); }
+  .tip b { display: block; color: var(--text); font-size: 13.5px; margin-bottom: 2px; }
+
+  .turn { margin: 0 0 26px; animation: rise .25s ease-out; }
+  @keyframes rise { from { opacity: 0; transform: translateY(4px); } }
+  .user { display: flex; justify-content: flex-end; margin-bottom: 10px; }
+  .user div { background: var(--accent); color: var(--accent-text); border-radius: 16px 16px 4px 16px;
+              padding: 9px 14px; max-width: 80%; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .user.reply div { background: var(--accent-soft); color: var(--text); }
+  .bot { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
+         box-shadow: var(--shadow); overflow: hidden; }
+  .bot > .body { padding: 16px 18px; }
+
+  /* Progress timeline */
+  .steps { list-style: none; margin: 0; padding: 0; }
+  .steps li { display: flex; gap: 10px; align-items: flex-start; font-size: 13.5px; color: var(--muted);
+              padding: 3px 0; }
+  .steps li .ic { flex: none; width: 16px; height: 16px; margin-top: 2px; border-radius: 50%;
+                  display: grid; place-items: center; }
+  .steps li.done .ic { background: var(--ok-soft); color: var(--ok); }
+  .steps li.done .ic::after { content: ""; width: 6px; height: 3px; border-left: 1.5px solid currentColor;
+                              border-bottom: 1.5px solid currentColor; transform: rotate(-45deg) translate(1px, -1px); }
+  .steps li.live { color: var(--text); }
+  .steps li.live .ic { border: 2px solid var(--line-strong); border-top-color: var(--accent);
+                       animation: spin .8s linear infinite; }
+  .steps li.retry { color: var(--warn); }
+  .steps li.retry .ic { background: var(--warn-soft); color: var(--warn); font-size: 11px; font-weight: 700; }
+  .steps li.retry .ic::after { content: "↻"; }
+  .steps li.err { color: var(--bad); }
+  .steps li.err .ic { background: var(--bad-soft); color: var(--bad); font-size: 11px; font-weight: 700; }
+  .steps li.err .ic::after { content: "!"; }
+  .steps li small { display: block; color: var(--faint); font-size: 12px; overflow-wrap: anywhere; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  details.trace > summary { cursor: pointer; font-size: 12.5px; color: var(--faint); list-style: none;
+                            display: inline-flex; align-items: center; gap: 6px; margin-bottom: 4px; }
+  details.trace > summary::-webkit-details-marker { display: none; }
+  details.trace > summary::before { content: "▸"; font-size: 10px; transition: transform .15s; }
+  details.trace[open] > summary::before { transform: rotate(90deg); }
+  details.trace[open] > summary { margin-bottom: 8px; }
+
+  .answer { font-size: 16.5px; line-height: 1.6; margin: 6px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .notice { display: flex; gap: 10px; margin-top: 10px; padding: 12px 14px; border-radius: 10px; font-size: 14.5px; }
+  .notice b { display: block; margin-bottom: 2px; }
+  .notice.clarify { background: var(--accent-soft); }
+  .notice.declined { background: var(--panel-2); border: 1px solid var(--line); color: var(--muted); }
+  .notice.gave_up { background: var(--warn-soft); }
+  .notice.error { background: var(--bad-soft); color: var(--bad); }
+  .notice pre { margin-top: 8px; }
+
+  /* Result panel */
+  .result { border-top: 1px solid var(--line); background: var(--panel-2); }
+  .tabs { display: flex; align-items: center; gap: 2px; padding: 8px 12px 0; border-bottom: 1px solid var(--line); }
+  .tab { border: 0; background: none; padding: 8px 12px; border-bottom: 2px solid transparent;
+         color: var(--muted); font-size: 13.5px; margin-bottom: -1px; }
+  .tab[aria-selected="true"] { color: var(--text); border-bottom-color: var(--accent); font-weight: 600; }
+  .tabs .tools { margin-left: auto; display: flex; gap: 6px; padding-bottom: 6px; }
+  .tools .btn { padding: 4px 9px; font-size: 12.5px; }
+  .pane { padding: 14px 18px 16px; }
+  .pane[hidden] { display: none; }
+  .chart { position: relative; height: 280px; }
+  .tablewrap { overflow: auto; max-height: 340px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); }
   table { border-collapse: collapse; font-size: 13px; width: 100%; }
-  th, td { text-align: left; padding: 5px 10px; border-bottom: 1px solid var(--line);
-           white-space: nowrap; }
-  th { position: sticky; top: 0; background: var(--panel); color: var(--muted); font-weight: 600; }
-  td.num { text-align: right; font-variant-numeric: tabular-nums; }
-  .chart { position: relative; height: 260px; margin-top: 12px; }
-  .meta { display: flex; gap: 8px; align-items: center; margin-top: 10px; font-size: 12px;
-          color: var(--muted); flex-wrap: wrap; }
-  .pill { border: 1px solid var(--line); border-radius: 999px; padding: 1px 8px; }
-  .fb { margin-left: auto; display: flex; gap: 6px; }
-  .fb button { padding: 2px 8px; font-size: 13px; }
-  .fb button.on { border-color: var(--accent); color: var(--accent); }
-  form.ask { position: fixed; left: 0; right: 0; bottom: 0; background: var(--panel);
-             border-top: 1px solid var(--line); }
-  form.ask .bar { flex-wrap: nowrap; }
-  form.ask textarea { flex: 1; resize: none; height: 44px; min-width: 0; }
-  #hint { font-size: 12px; color: var(--muted); max-width: 920px; margin: 0 auto;
-          padding: 0 16px 8px; }
-  @media (max-width: 560px) { h1 span { display: none; } .bar { gap: 8px; } }
+  th, td { text-align: left; padding: 7px 12px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  tr:last-child td { border-bottom: 0; }
+  th { position: sticky; top: 0; background: var(--panel); color: var(--muted); font-weight: 600; font-size: 12px; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  tbody tr:hover { background: var(--panel-2); }
+  .caption { font-size: 12px; color: var(--faint); margin-top: 8px; }
+  pre { margin: 0; background: var(--code); padding: 12px 14px; border-radius: 10px; overflow-x: auto;
+        font: 12.5px/1.55 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+
+  .meta { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; padding: 10px 18px;
+          border-top: 1px solid var(--line); font-size: 12px; color: var(--muted); }
+  .pill { border: 1px solid var(--line); border-radius: 999px; padding: 1px 9px; background: var(--panel); }
+  .pill.ok { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 35%, var(--line)); }
+  .pill.warn { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 35%, var(--line)); }
+  .fb { margin-left: auto; display: flex; align-items: center; gap: 4px; }
+  .fb button { border: 1px solid transparent; background: none; border-radius: 8px; padding: 2px 7px; font-size: 14px; filter: grayscale(1); opacity: .7; }
+  .fb button:hover { border-color: var(--line); opacity: 1; }
+  .fb button.on { filter: none; opacity: 1; border-color: var(--accent); background: var(--accent-soft); }
+
+  /* Composer */
+  .composer { position: fixed; left: 0; right: 0; bottom: 0; z-index: 10;
+              background: linear-gradient(to top, var(--bg) 70%, transparent); padding: 18px 0 14px; }
+  .replying { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted);
+              margin: 0 4px 8px; }
+  .replying[hidden] { display: none; }
+  .replying b { color: var(--text); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .replying button { margin-left: auto; border: 0; background: none; color: var(--accent); font-size: 13px; white-space: nowrap; }
+  .box { display: flex; gap: 8px; align-items: flex-end; background: var(--panel); border: 1px solid var(--line-strong);
+         border-radius: 16px; padding: 8px 8px 8px 14px; box-shadow: var(--shadow); }
+  .box:focus-within { border-color: var(--accent); }
+  .box textarea { flex: 1; border: 0; outline: none; background: none; resize: none; min-height: 24px;
+                  max-height: 160px; padding: 6px 0; line-height: 1.5; }
+  .box .btn.primary { border-radius: 11px; padding: 8px 14px; }
+  .hint { text-align: center; font-size: 11.5px; color: var(--faint); margin-top: 8px; }
+  kbd { font: 11px ui-monospace, monospace; border: 1px solid var(--line); border-bottom-width: 2px;
+        border-radius: 4px; padding: 0 4px; background: var(--panel); }
+
+  @media (max-width: 640px) {
+    .brand span, .btn .txt { display: none; }
+    .select select { max-width: 140px; }
+    .hero h2 { font-size: 22px; }
+    .user div { max-width: 92%; }
+    .bot > .body, .pane { padding-left: 14px; padding-right: 14px; }
+    .hint { display: none; }
+  }
+  @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
 </style>
 </head>
 <body>
 <header>
-  <div class="bar">
-    <h1>AskData <span>· questions in, verified SQL out</span></h1>
-    <select id="dataset" aria-label="Dataset"></select>
-    <input id="key" type="password" placeholder="API key" aria-label="API key" size="12">
-    <button id="new" type="button">New chat</button>
+  <div class="wrap top">
+    <div class="brand">
+      <svg width="28" height="28" viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="8" fill="var(--accent)"/><path d="M9 22V14M16 22V9M23 22v-5" stroke="var(--accent-text)" stroke-width="3" stroke-linecap="round"/></svg>
+      <b>AskData</b><span>Questions in, verified SQL out</span>
+    </div>
+    <div class="select"><select id="dataset" aria-label="Dataset"></select></div>
+    <button class="btn" id="new" type="button" title="Start a new conversation">
+      <svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+      <span class="txt">New chat</span>
+    </button>
+    <details class="settings" id="settings">
+      <summary class="btn icon" title="Settings" aria-label="Settings"><span class="dot" id="keydot"></span></summary>
+      <div class="pop">
+        <label for="key">API key</label>
+        <input id="key" type="password" autocomplete="off" placeholder="X-API-Key">
+        <p id="keyhint">Stored in this browser only.</p>
+      </div>
+    </details>
   </div>
 </header>
-<main id="log"><p class="empty" id="empty">Pick a dataset, enter your API key and ask a question.</p></main>
-<form class="ask" id="form">
-  <div class="bar">
-    <textarea id="q" placeholder="Ask a question about the data…" maxlength="500" required></textarea>
-    <button class="primary" id="send">Ask</button>
+
+<main class="wrap" id="log"></main>
+
+<form class="composer" id="form">
+  <div class="wrap">
+    <div class="replying" id="replying" hidden>
+      <span>Replying to</span><b id="replyq"></b>
+      <button type="button" id="cancelReply">Ask something else</button>
+    </div>
+    <div class="box">
+      <textarea id="q" rows="1" maxlength="500" placeholder="Ask a question about the data…" aria-label="Question"></textarea>
+      <button class="btn primary" id="send" aria-label="Send">
+        <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h9M8.5 4.5 12 8l-3.5 3.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+    </div>
+    <div class="hint"><kbd>Enter</kbd> to send · <kbd>Shift</kbd>+<kbd>Enter</kbd> new line · follow-ups like "now only 2023" keep the context</div>
   </div>
-  <div id="hint"></div>
 </form>
+
 <script>
 "use strict";
 const $ = (id) => document.getElementById(id);
@@ -96,17 +243,21 @@ const store = {
   get(k) { try { return localStorage.getItem(k); } catch { return null; } },
   set(k, v) { try { localStorage.setItem(k, v); } catch {} },
 };
-let threadId = null, pending = null, busy = false;
+let datasets = [], threadId = null, pending = null, busy = false;
 
 function el(tag, attrs = {}, ...children) {
   const node = document.createElement(tag);
   for (const [k, v] of Object.entries(attrs)) {
-    if (k === "class") node.className = v; else if (k === "text") node.textContent = v;
-    else node.setAttribute(k, v);
+    if (v === undefined || v === null || v === false) continue;
+    if (k === "class") node.className = v;
+    else if (k === "text") node.textContent = v;
+    else if (k.startsWith("on")) node.addEventListener(k.slice(2), v);
+    else node.setAttribute(k, v === true ? "" : v);
   }
-  for (const c of children) if (c) node.append(c);
+  for (const c of children) if (c !== null && c !== undefined && c !== false) node.append(c);
   return node;
 }
+const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 
 async function api(path, body) {
   const res = await fetch(path, {
@@ -117,38 +268,72 @@ async function api(path, body) {
   if (!res.ok) {
     let detail = res.statusText;
     try { detail = (await res.json()).detail || detail; } catch {}
-    throw new Error(`${res.status}: ${detail}`);
+    const msg = res.status === 401 ? "Missing or invalid API key: open settings (top right)."
+      : res.status === 429 ? "Too many requests: wait a minute and try again." : `${res.status}: ${detail}`;
+    throw new Error(msg);
   }
   return res;
 }
 
+/* ---------- datasets + empty state ---------- */
 async function loadDatasets() {
   const sel = $("dataset");
-  sel.replaceChildren();
   try {
-    const list = await (await api("/api/v1/datasets")).json();
-    for (const d of list) sel.append(el("option", { value: d.name, text: d.title || d.name }));
-    const saved = store.get("askdata.dataset");
-    if (saved && list.some((d) => d.name === saved)) sel.value = saved;
-    $("hint").textContent = list.find((d) => d.name === sel.value)?.description || "";
+    datasets = await (await api("/api/v1/datasets")).json();
+    $("keydot").className = "dot ok";
+    $("keyhint").textContent = "Connected. Stored in this browser only.";
   } catch (e) {
-    sel.append(el("option", { value: "", text: "— enter API key —" }));
-    $("hint").textContent = String(e.message || e);
+    datasets = [];
+    $("keydot").className = "dot bad";
+    $("keyhint").textContent = e.message;
   }
+  sel.replaceChildren(...(datasets.length
+    ? datasets.map((d) => el("option", { value: d.name, text: d.title || d.name }))
+    : [el("option", { value: "", text: "No access" })]));
+  const saved = store.get("askdata.dataset");
+  if (saved && datasets.some((d) => d.name === saved)) sel.value = saved;
+  if (!threadId) renderHero();
 }
+
+function current() { return datasets.find((d) => d.name === $("dataset").value); }
+
+function renderHero() {
+  const ds = current();
+  const log = $("log");
+  if (!ds) {
+    log.replaceChildren(el("section", { class: "hero" },
+      el("h2", { text: "Ask your data anything" }),
+      el("p", { text: "Enter an API key in settings (top right) to load the datasets." }),
+      el("button", { class: "btn primary", type: "button", text: "Open settings",
+        onclick: () => { $("settings").open = true; $("key").focus(); } })));
+    return;
+  }
+  const chips = (ds.examples || []).map((q) => el("button", { class: "chip", type: "button", text: q,
+    onclick: () => submit(q) }));
+  log.replaceChildren(el("section", { class: "hero" },
+    el("h2", { text: ds.title }),
+    el("p", { text: ds.description }),
+    chips.length ? el("p", { class: "label", text: "Try asking" }) : null,
+    chips.length ? el("div", { class: "chips" }, ...chips) : null,
+    el("div", { class: "tips" },
+      tip("Verified, read-only", "Every query is parsed, cost-checked and run on a read-only role."),
+      tip("Follow-ups work", "“Now only 2023” or “split by season” builds on the last answer."),
+      tip("Asks when unclear", "Ambiguous questions get one short clarifying question."))));
+}
+function tip(title, text) { return el("div", { class: "tip" }, el("b", { text: title }), text); }
 
 function newChat() {
-  threadId = null; pending = null;
-  $("log").replaceChildren(el("p", { class: "empty", text: "New conversation. Ask a question." }));
-  setPlaceholder();
+  threadId = null; setPending(null); renderHero(); $("q").focus();
 }
 
-function setPlaceholder() {
-  $("q").placeholder = pending ? `Reply: ${pending}` : "Ask a question about the data…";
-  $("send").textContent = pending ? "Reply" : "Ask";
+function setPending(question) {
+  pending = question;
+  $("replying").hidden = !question;
+  $("replyq").textContent = question || "";
+  $("q").placeholder = question ? "Type your answer…" : "Ask a question about the data…";
 }
 
-// Minimal SSE parser over a fetch() body (EventSource can't POST or send headers)
+/* ---------- SSE over fetch (EventSource can't POST or send headers) ---------- */
 async function* sse(res) {
   const reader = res.body.getReader(), dec = new TextDecoder();
   let buf = "";
@@ -169,50 +354,100 @@ async function* sse(res) {
   }
 }
 
-function renderTable(columns, rows, total, truncated) {
-  const head = el("tr", {}, ...columns.map((c) => el("th", { text: c })));
-  const body = rows.map((r) => el("tr", {}, ...r.map((v) => {
-    const isNum = typeof v === "number" || (typeof v === "string" && /^-?\d+(\.\d+)?$/.test(v));
-    return el("td", { class: isNum ? "num" : "", text: v === null ? "—" : String(v) });
-  })));
-  const note = total > rows.length || truncated
-    ? el("div", { class: "status", text: `Showing ${rows.length} of ${total}${truncated ? "+" : ""} rows` })
-    : null;
-  return el("div", {}, el("div", { class: "tablewrap" }, el("table", {}, el("thead", {}, head), el("tbody", {}, ...body))), note);
+/* ---------- result rendering ---------- */
+const isNum = (v) => typeof v === "number" || (typeof v === "string" && /^-?\d+(\.\d+)?$/.test(v));
+function fmt(v) {
+  if (v === null || v === undefined) return "—";
+  if (typeof v === "number") return Number.isInteger(v) ? v.toLocaleString() : v.toLocaleString(undefined, { maximumFractionDigits: 2 });
+  return String(v);
 }
 
-function renderChart(spec, columns, rows) {
+function renderTable(t) {
+  const numCols = t.columns.map((_, i) => t.rows.length > 0 && t.rows.every((r) => r[i] === null || isNum(r[i])));
+  const head = el("tr", {}, ...t.columns.map((c, i) => el("th", { class: numCols[i] ? "num" : null, text: c })));
+  const body = t.rows.map((r) => el("tr", {}, ...r.map((v, i) => el("td", { class: numCols[i] ? "num" : null, text: fmt(v) }))));
+  const shown = t.rows.length, total = t.row_count;
+  return el("div", {},
+    el("div", { class: "tablewrap" }, el("table", {}, el("thead", {}, head), el("tbody", {}, ...body))),
+    el("div", { class: "caption", text: total > shown || t.truncated
+      ? `Showing ${shown} of ${total.toLocaleString()}${t.truncated ? "+" : ""} rows` : `${total} row${total === 1 ? "" : "s"}` }));
+}
+
+function renderChart(spec, t) {
   if (!spec || spec.type === "table" || !window.Chart) return null;
-  const xi = columns.indexOf(spec.x), yi = columns.indexOf(spec.y);
+  const xi = t.columns.indexOf(spec.x), yi = t.columns.indexOf(spec.y);
   if (xi < 0 || yi < 0) return null;
-  const css = getComputedStyle(document.documentElement);
-  const color = css.getPropertyValue("--chart").trim(), muted = css.getPropertyValue("--muted").trim();
-  const line = css.getPropertyValue("--line").trim();
-  const canvas = el("canvas");
+  const canvas = el("canvas", { role: "img", "aria-label": `${spec.type} chart of ${spec.y} by ${spec.x}` });
   const box = el("div", { class: "chart" }, canvas);
-  const labels = rows.map((r) => String(r[xi])), data = rows.map((r) => Number(r[yi]));
-  const pie = spec.type === "pie";
-  const palette = labels.map((_, i) => `color-mix(in srgb, ${color} ${100 - i * 11}%, ${css.getPropertyValue("--panel").trim()})`);
+  const labels = t.rows.map((r) => String(r[xi])), data = t.rows.map((r) => Number(r[yi]));
+  const palette = ["--c1", "--c2", "--c3", "--c4", "--c5", "--c6", "--c7", "--c8"].map(css);
+  const pie = spec.type === "pie", muted = css("--muted"), grid = css("--line"), accent = css("--c1");
   requestAnimationFrame(() => new Chart(canvas, {
     type: spec.type,
-    data: { labels, datasets: [{ label: spec.y, data, backgroundColor: pie ? palette : color,
-      borderColor: color, borderWidth: pie ? 0 : 2, pointRadius: 2, tension: 0.25 }] },
+    data: { labels, datasets: [{
+      label: spec.y, data,
+      backgroundColor: pie ? palette : spec.type === "line" ? `color-mix(in srgb, ${accent} 15%, transparent)` : accent,
+      borderColor: pie ? css("--panel") : accent, borderWidth: pie ? 2 : 2, borderRadius: spec.type === "bar" ? 4 : 0,
+      fill: spec.type === "line", pointRadius: data.length > 30 ? 0 : 3, pointHoverRadius: 5, tension: 0.25,
+      maxBarThickness: 48,
+    }] },
     options: {
-      responsive: true, maintainAspectRatio: false, animation: false,
-      plugins: { legend: { display: pie, position: "right", labels: { color: muted } } },
+      responsive: true, maintainAspectRatio: false, animation: { duration: 300 },
+      interaction: { mode: "index", intersect: false },
+      plugins: {
+        legend: { display: pie, position: "right", labels: { color: muted, boxWidth: 12, boxHeight: 12 } },
+        tooltip: { callbacks: { label: (c) => ` ${spec.y}: ${fmt(c.parsed.y ?? c.parsed)}` } },
+      },
       scales: pie ? {} : {
-        x: { ticks: { color: muted, maxRotation: 45, autoSkip: true }, grid: { display: false } },
-        y: { ticks: { color: muted }, grid: { color: line }, beginAtZero: spec.type === "bar" },
+        x: { ticks: { color: muted, maxRotation: 45, autoSkip: true }, grid: { display: false },
+             title: { display: true, text: spec.x, color: muted } },
+        y: { ticks: { color: muted, callback: (v) => fmt(v) }, grid: { color: grid }, border: { display: false },
+             beginAtZero: spec.type === "bar", title: { display: true, text: spec.y, color: muted } },
       },
     },
   }));
   return box;
 }
 
+function csv(t) {
+  const cell = (v) => { const s = v === null ? "" : String(v); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
+  return [t.columns, ...t.rows].map((r) => r.map(cell).join(",")).join("\n");
+}
+
+function resultPanel(spec, t, sql) {
+  const panes = [], tabs = [];
+  const chart = t && t.columns.length ? renderChart(spec, t) : null;
+  if (chart) panes.push(["Chart", chart]);
+  if (t && t.columns.length) panes.push(["Table", renderTable(t)]);
+  if (sql) panes.push(["SQL", el("pre", { text: sql })]);
+  if (!panes.length) return null;
+  // Default: chart if any; table for multi-row results; otherwise collapsed on SQL
+  const first = chart ? 0 : t && t.row_count > 1 ? 0 : -1;
+  const paneEls = panes.map(([name, content], i) => el("div", { class: "pane", role: "tabpanel", hidden: i !== first }, content));
+  const select = (i) => {  // click a tab to show it; click the open tab again to collapse
+    const closing = tabs[i].getAttribute("aria-selected") === "true";
+    paneEls.forEach((p, j) => { p.hidden = closing || j !== i; });
+    tabs.forEach((b, j) => b.setAttribute("aria-selected", String(!closing && j === i)));
+  };
+  panes.forEach(([name], i) => tabs.push(el("button", { class: "tab", type: "button", role: "tab",
+    "aria-selected": String(i === first), text: name, onclick: () => select(i) })));
+  const tools = el("div", { class: "tools" });
+  if (sql) tools.append(el("button", { class: "btn", type: "button", text: "Copy SQL", onclick: async (e) => {
+    try { await navigator.clipboard.writeText(sql); e.target.textContent = "Copied"; } catch { e.target.textContent = "Copy failed"; }
+    setTimeout(() => (e.target.textContent = "Copy SQL"), 1500);
+  } }));
+  if (t && t.columns.length) tools.append(el("button", { class: "btn", type: "button", text: "CSV", title: "Download the rows shown",
+    onclick: () => {
+      const a = el("a", { href: URL.createObjectURL(new Blob([csv(t)], { type: "text/csv" })), download: "askdata-result.csv" });
+      a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    } }));
+  return el("div", { class: "result" }, el("div", { class: "tabs", role: "tablist" }, ...tabs, tools), ...paneEls);
+}
+
 function feedback(queryId) {
-  const wrap = el("span", { class: "fb" });
-  for (const [rating, label] of [[1, "👍"], [-1, "👎"]]) {
-    const b = el("button", { type: "button", title: rating > 0 ? "Good answer" : "Bad answer", text: label });
+  const wrap = el("span", { class: "fb" }, el("span", { text: "Helpful?" }));
+  for (const [rating, label, title] of [[1, "👍", "Good answer"], [-1, "👎", "Wrong answer"]]) {
+    const b = el("button", { type: "button", title, "aria-label": title, text: label });
     b.onclick = async () => {
       try {
         await api(`/api/v1/queries/${queryId}/feedback`, { rating });
@@ -225,85 +460,149 @@ function feedback(queryId) {
   return wrap;
 }
 
+/* ---------- one turn ---------- */
+const STEP = { contextualize: "Reading the question", classify: "Understanding the question",
+               validate_sql: "Safety checks passed", cache: "Answered from cache" };
+
 async function ask(text) {
   const log = $("log");
-  $("empty")?.remove();
-  log.querySelector(".empty")?.remove();
-  const card = el("div", { class: "card" });
-  const turn = el("section", { class: "turn" }, el("p", { class: "q", text: text }), card);
+  log.querySelector(".hero")?.remove();
+  const replying = Boolean(pending);
+  const steps = el("ul", { class: "steps" });
+  const body = el("div", { class: "body" }, steps);
+  const bot = el("div", { class: "bot", "aria-live": "polite" }, body);
+  const turn = el("section", { class: "turn" },
+    el("div", { class: `user${replying ? " reply" : ""}` }, el("div", { text: text })), bot);
   log.append(turn);
-  const status = (msg, cls = "") => card.append(el("div", { class: `status ${cls}`, text: msg }));
-  let sql = null, table = null, attempts = 0, tables = null;
+  turn.scrollIntoView({ behavior: "smooth", block: "start" });
+
+  let live = null, table = null, attempts = 0, tables = null, retries = 0;
+  const started = performance.now();
+  const step = (msg, cls = "live", detail = null) => {
+    if (live) live.className = "done";
+    const li = el("li", { class: cls }, el("span", { class: "ic" }), el("div", {}, msg, detail ? el("small", { text: detail }) : null));
+    steps.append(li);
+    live = cls === "live" ? li : null;
+  };
+  const finishSteps = () => { if (live) live.className = "done"; live = null; };
+  step("Starting");
 
   try {
-    const resuming = Boolean(pending);
     if (!threadId) {
       const r = await (await api("/api/v1/threads", { dataset: $("dataset").value })).json();
       threadId = r.thread_id;
     }
-    const res = resuming
+    const res = replying
       ? await api(`/api/v1/threads/${threadId}/resume`, { reply: text })
       : await api(`/api/v1/threads/${threadId}/ask`, { question: text });
-    pending = null;
+    setPending(null);
+    steps.firstChild.remove(); live = null;
+
     for await (const [name, d] of sse(res)) {
-      if (name === "status") status(d.message);
-      else if (name === "tables") tables = d;
-      else if (name === "sql") { sql = d.sql; attempts = d.attempt; status(`Wrote SQL (attempt ${d.attempt})`); }
-      else if (name === "retry") status(`Retrying: ${d.stage} failed: ${d.error.split("\n")[0].slice(0, 160)}`, "retry");
-      else if (name === "rows") table = d;
-      else if (name === "clarify") {
-        pending = d.question;
-        card.append(el("div", { class: "clarify", text: d.question }));
-      } else if (name === "error") status(d.message, "error");
-      else if (name === "answer") {
-        card.querySelectorAll(".status").forEach((s) => { if (!s.classList.contains("retry")) s.remove(); });
-        card.append(el("div", { class: `answer ${d.outcome}`, text: d.answer || "" }));
-        if (table && d.outcome === "answered") {
-          const chart = renderChart(d.chart, table.columns, table.rows);
-          if (chart) card.append(chart);
-          if (table.columns.length) {
-            const det = el("details", {}, el("summary", { text: `Result · ${table.row_count} row(s)` }),
-              renderTable(table.columns, table.rows, table.row_count, table.truncated));
-            if (!chart && table.row_count > 1) det.open = true;
-            card.append(det);
-          }
-        }
-        if (d.sql) card.append(el("details", {}, el("summary", { text: "SQL" }), el("pre", { text: d.sql })));
-        const meta = el("div", { class: "meta" });
-        if (d.outcome !== "answered") meta.append(el("span", { class: "pill", text: d.outcome.replace("_", " ") }));
-        if (d.cached) meta.append(el("span", { class: "pill", text: "cached" }));
-        if (attempts > 1) meta.append(el("span", { class: "pill", text: `${attempts} attempts` }));
-        if (tables?.mode === "retrieved") meta.append(el("span", { class: "pill", text: `tables: ${tables.tables.join(", ")}` }));
-        if (d.query_id) meta.append(feedback(d.query_id));
-        card.append(meta);
+      if (name === "status") {
+        const rewritten = d.node === "contextualize" && d.question && d.question !== text ? `Read as: ${d.question}` : null;
+        step(STEP[d.node] || d.message, "live", rewritten);
+      } else if (name === "tables") {
+        tables = d;
+        step(d.mode === "retrieved" ? `Picked ${d.tables.length} relevant tables` : `Using ${d.tables.length} tables`, "live", d.tables.join(", "));
+      } else if (name === "sql") {
+        attempts = d.attempt || attempts;
+        step(attempts > 1 ? `Rewrote the SQL (attempt ${attempts})` : "Wrote SQL", "live", d.reasoning || null);
+      } else if (name === "retry") {
+        retries += 1;
+        step(`${d.stage[0].toUpperCase() + d.stage.slice(1)} failed, fixing it`, "retry", d.error.split("\n")[0].slice(0, 220));
+      } else if (name === "rows") {
+        table = d;
+        step(`Ran the query: ${d.row_count.toLocaleString()} row${d.row_count === 1 ? "" : "s"}`, "live");
+      } else if (name === "clarify") {
+        finishSteps();
+        setPending(d.question);
+        body.append(el("div", { class: "notice clarify" }, el("div", {},
+          el("b", { text: "One quick question first" }), d.question)));
+      } else if (name === "error") {
+        finishSteps();
+        body.append(el("div", { class: "notice error" }, el("div", {}, el("b", { text: "Something went wrong" }), d.message)));
+      } else if (name === "answer") {
+        finishSteps();
+        renderAnswer({ d, body, bot, steps, table, attempts, retries, tables, started });
       }
     }
+    finishSteps();
   } catch (e) {
-    status(String(e.message || e), "error");
+    finishSteps();
+    steps.querySelectorAll("li").forEach((li) => { if (li.textContent === "Starting") li.remove(); });
+    body.append(el("div", { class: "notice error" }, el("div", {}, el("b", { text: "Request failed" }), String(e.message || e))));
   }
-  setPlaceholder();
-  turn.scrollIntoView({ behavior: "smooth", block: "end" });
 }
 
-$("form").onsubmit = async (ev) => {
-  ev.preventDefault();
-  const text = $("q").value.trim();
+function renderAnswer({ d, body, bot, steps, table, attempts, retries, tables, started }) {
+  const secs = ((performance.now() - started) / 1000).toFixed(1);
+  // Collapse the trace into a one-line summary
+  const n = steps.children.length;
+  const trace = el("details", { class: "trace" },
+    el("summary", { text: `${n} step${n === 1 ? "" : "s"} · ${secs}s${retries ? ` · ${retries} fix${retries === 1 ? "" : "es"}` : ""}` }), steps);
+  body.replaceChildren(trace);
+
+  if (d.outcome === "answered") {
+    body.append(el("p", { class: "answer", text: d.answer || "" }));
+  } else if (d.outcome === "declined") {
+    body.append(el("div", { class: "notice declined" }, el("div", {}, el("b", { text: "Not something this dataset can answer" }), d.answer || "")));
+  } else if (d.outcome === "gave_up") {
+    const [msg, lastSql] = (d.answer || "").split("\n\nLast SQL tried:\n");
+    body.append(el("div", { class: "notice gave_up" }, el("div", {}, el("b", { text: "Couldn't get a correct query" }), msg,
+      lastSql ? el("pre", { text: lastSql }) : null)));
+  }
+  const panel = d.outcome === "answered" ? resultPanel(d.chart, table, d.sql) : null;
+  if (panel) bot.append(panel);
+
+  const meta = el("div", { class: "meta" });
+  if (d.outcome === "answered") meta.append(el("span", { class: "pill ok", text: "verified SQL" }));
+  if (d.cached) meta.append(el("span", { class: "pill", text: "cached" }));
+  if (attempts > 1) meta.append(el("span", { class: "pill warn", text: `${attempts} attempts` }));
+  if (tables?.mode === "retrieved") meta.append(el("span", { class: "pill", text: `${tables.tables.length} tables retrieved` }));
+  meta.append(el("span", { class: "pill", text: `${secs}s` }));
+  if (d.query_id) meta.append(feedback(d.query_id));
+  bot.append(meta);
+}
+
+/* ---------- composer ---------- */
+async function submit(text) {
+  text = (text || "").trim();
   if (!text || busy) return;
-  busy = true; $("send").disabled = true; $("q").value = "";
+  if (!$("dataset").value) { $("settings").open = true; $("key").focus(); return; }
+  busy = true; $("send").disabled = true; $("q").value = ""; grow();
   try { await ask(text); } finally { busy = false; $("send").disabled = false; $("q").focus(); }
-};
+}
+function grow() { const q = $("q"); q.style.height = "auto"; q.style.height = Math.min(q.scrollHeight, 160) + "px"; }
+
+$("form").onsubmit = (ev) => { ev.preventDefault(); submit($("q").value); };
+$("q").addEventListener("input", grow);
 $("q").addEventListener("keydown", (ev) => {
-  if (ev.key === "Enter" && !ev.shiftKey) { ev.preventDefault(); $("form").requestSubmit(); }
+  if (ev.key === "Enter" && !ev.shiftKey && !ev.isComposing) { ev.preventDefault(); submit($("q").value); }
 });
+document.addEventListener("keydown", (ev) => {
+  if (ev.key === "/" && document.activeElement.tagName !== "TEXTAREA" && document.activeElement.tagName !== "INPUT") {
+    ev.preventDefault(); $("q").focus();
+  }
+});
+$("cancelReply").onclick = () => { setPending(null); $("q").focus(); };
 $("new").onclick = newChat;
-$("dataset").onchange = () => { store.set("askdata.dataset", $("dataset").value); newChat(); loadDatasets(); };
-$("key").onchange = () => { store.set("askdata.key", $("key").value.trim()); loadDatasets(); };
+$("dataset").onchange = () => { store.set("askdata.dataset", $("dataset").value); newChat(); };
+$("key").addEventListener("change", () => { store.set("askdata.key", $("key").value.trim()); loadDatasets(); });
+document.addEventListener("click", (ev) => { if (!$("settings").contains(ev.target)) $("settings").open = false; });
+
 (async () => {
   $("key").value = store.get("askdata.key") || "";
   if (!$("key").value) {
     try { $("key").value = (await (await fetch("/web-config")).json()).demo_api_key || ""; } catch {}
   }
-  loadDatasets();
+  // Shareable links: /?dataset=sales&q=Top+5+products+by+revenue
+  const params = new URLSearchParams(location.search);
+  if (params.get("dataset")) store.set("askdata.dataset", params.get("dataset"));
+  await loadDatasets();
+  if (!datasets.length) $("settings").open = true;
+  $("q").focus();
+  if (params.get("q") && datasets.length) submit(params.get("q"));
 })();
 </script>
 </body>

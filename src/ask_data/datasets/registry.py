@@ -89,6 +89,7 @@ class Dataset:
             "title": self.title,
             "description": self.description,
             "tables": sorted(self.tables),
+            "examples": [f.question for f in self.fewshots[:4]],  # verified, safe to suggest
             "version": self.version,
             "loaded_at": self.loaded_at.isoformat() if self.loaded_at else None,
         }

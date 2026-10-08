@@ -76,3 +76,10 @@ def test_fewshots_are_safe_and_not_in_golden(folder: Path):
 def test_notes_are_short(folder: Path):
     notes = read_notes(folder)
     assert notes and len(notes.splitlines()) <= 40
+
+
+def test_summary_suggests_verified_fewshot_questions():
+    from conftest import make_dataset
+
+    summary = make_dataset().summary()
+    assert summary["examples"] == ["How many items are there?"]
