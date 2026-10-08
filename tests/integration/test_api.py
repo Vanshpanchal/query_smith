@@ -5,12 +5,14 @@ Phase 2 DoD: the stream shows sql → retry → sql → rows → answer on BOTH 
 """
 
 import json
+import uuid
 
 import httpx
 import pytest
 from conftest import ANSWER, SQL_INTENT, ScriptedLLM, clarify_intent, draft, requires_db, rewrite
 from psycopg.rows import tuple_row
 
+from ask_data.api.cache import AnswerCache, cache_key
 from ask_data.api.security import RateLimiter
 from ask_data.config import settings
 from ask_data.main import app
@@ -33,6 +35,7 @@ RETRY_SQL = {
 async def client():
     async with app.router.lifespan_context(app):
         app.state.rate_limiter = RateLimiter(app.state.redis, limit=10_000)
+        app.state.answer_cache = AnswerCache(app.state.redis, ttl_s=0)  # tests opt in
         created: list[str] = []
         transport = httpx.ASGITransport(app=app)
         async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
@@ -350,3 +353,72 @@ async def test_pgvector_retrieval_on_real_cards(client):
             await conn.execute("DELETE FROM app.datasets WHERE name = %s", (name,))  # cascades
     assert hits[0] == "deliveries", hits
     assert {"deliveries", "players"} <= set(expand_with_fks(hits, ds.schema_info))
+
+
+async def test_answer_cache_serves_a_repeated_first_question(client):
+    name = min(d.name for d in app.state.deps.registry.all())
+    ds = app.state.deps.registry.get(name)
+    table = min(ds.tables)
+    app.state.answer_cache = AnswerCache(app.state.redis, ttl_s=60)
+    question = f"Cache test {uuid.uuid4()}: how many rows?"
+    key = cache_key(name, ds.version, question, settings.llm_model)
+    try:
+        script_llms([f"SELECT COUNT(*) AS n FROM {ds.schema}.{table}"])
+        first = (await client.post("/api/v1/ask", headers=AUTH,
+                                   json={"question": question, "dataset": name})).json()  # fmt: skip
+        client.created_threads.append(first["thread_id"])
+        assert first["outcome"] == "answered" and first["cached"] is False
+
+        # Same question, other casing/punctuation, new thread: no LLM call, same answer
+        script_llms(["SELECT nope FROM nowhere"])
+        tid = await new_thread(client, name)
+        r = await client.post(f"/api/v1/threads/{tid}/ask", headers=AUTH,
+                              json={"question": f"  {question.upper()} "})  # fmt: skip
+        events = parse_sse(r.text)
+        flow = [n for n, _ in events]
+        assert flow == ["status", "tables", "sql", "rows", "answer", "done"], events
+        answer = next(d for n, d in events if n == "answer")
+        assert answer["cached"] is True and answer["sql"] == first["sql"]
+        assert app.state.deps.sql_llm.prompts == []
+
+        # The cached turn is in the thread (follow-ups work) and logged as cached
+        state = await app.state.graph.aget_state({"configurable": {"thread_id": tid}})
+        assert state.values["last_sql"] == first["sql"] and len(state.values["messages"]) == 2
+        async with (
+            app.state.app_pool.connection() as conn,
+            conn.cursor(row_factory=tuple_row) as cur,
+        ):
+            await cur.execute("SELECT outcome, cached FROM app.query_log WHERE id = %s",
+                              (answer["query_id"],))  # fmt: skip
+            assert await cur.fetchone() == ("answered", True)
+
+        # A follow-up on that thread is never served from the cache
+        script_llms([f"SELECT COUNT(*) AS n FROM {ds.schema}.{table}"], rewrites=[question])
+        again = (await client.post("/api/v1/ask", headers=AUTH,
+                                   json={"question": question, "thread_id": tid})).json()  # fmt: skip
+        assert again["cached"] is False and app.state.deps.sql_llm.prompts
+    finally:
+        await app.state.redis.delete(key)
+
+
+async def test_answer_cache_skips_failed_answers(client):
+    name = min(d.name for d in app.state.deps.registry.all())
+    ds = app.state.deps.registry.get(name)
+    app.state.answer_cache = AnswerCache(app.state.redis, ttl_s=60)
+    question = f"Cache test {uuid.uuid4()}: broken?"
+    key = cache_key(name, ds.version, question, settings.llm_model)
+    script_llms(["SELECT nope FROM nowhere"])
+    body = (await client.post("/api/v1/ask", headers=AUTH,
+                              json={"question": question, "dataset": name})).json()  # fmt: skip
+    client.created_threads.append(body["thread_id"])
+    assert body["outcome"] == "gave_up"
+    assert await app.state.redis.get(key) is None
+
+
+async def test_demo_page_and_web_config(client, monkeypatch):
+    r = await client.get("/")
+    assert r.status_code == 200 and "<title>AskData</title>" in r.text
+    monkeypatch.setattr(settings, "demo_api_key", "not-a-real-key")
+    assert (await client.get("/web-config")).json() == {"demo_api_key": None}  # not in API_KEYS
+    monkeypatch.setattr(settings, "demo_api_key", API_KEY)
+    assert (await client.get("/web-config")).json() == {"demo_api_key": API_KEY}

@@ -45,3 +45,9 @@ class FinalAnswer(BaseModel):
     answer: str = Field(
         description="Direct answer in 1-3 sentences using only values present in the rows"
     )
+    chart: Literal["bar", "line", "pie", "none"] | None = Field(
+        default=None,
+        description="Best chart for the rows: 'line' for a trend over time, 'bar' to compare "
+        "categories or a ranking, 'pie' for shares of a whole (few rows), 'none' if a chart "
+        "adds nothing (a single value or a plain list)",
+    )

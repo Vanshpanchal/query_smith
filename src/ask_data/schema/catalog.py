@@ -28,7 +28,7 @@ JOIN pg_namespace n ON n.oid = con.connamespace
 WHERE n.nspname = %(schema)s AND con.contype IN ('p', 'f')
 ORDER BY 1, 2 DESC, 3
 """
-# pg_get_constraintdef: "FOREIGN KEY (a) REFERENCES ipl.matches(id)" (schema-qualified unless the
+# pg_get_constraintdef: "FOREIGN KEY (a) REFERENCES myschema.matches(id)" (schema-qualified unless the
 # schema is on the search_path) → "matches"
 FK_TARGET_RE = re.compile(r'REFERENCES\s+(?:"?\w+"?\.)?"?(\w+)"?\s*\(', re.IGNORECASE)
 

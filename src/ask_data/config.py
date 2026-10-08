@@ -14,6 +14,7 @@ class Settings(BaseSettings):
     groq_api_key: str = ""
     google_api_key: str = ""
     embedding_model: str = "models/text-embedding-004"
+    llm_max_retries: int = 2  # provider-level retries (429 / 5xx) with backoff; evals raise it
 
     app_database_url: str
     reader_database_url: str
@@ -21,6 +22,7 @@ class Settings(BaseSettings):
 
     api_keys: str = "dev-key"
     admin_api_key: str = "dev-admin-key"
+    demo_api_key: str = ""  # public key the demo page pre-fills; must also be in API_KEYS
     rate_limit_per_minute: int = 20
 
     max_attempts: int = 3
@@ -36,6 +38,9 @@ class Settings(BaseSettings):
     schema_retrieval_min_tables: int = 8  # datasets with more tables use pgvector retrieval
     schema_retrieval_top_k: int = 4
     history_messages: int = 8  # recent messages `contextualize` sees for follow-ups
+    fewshots_k: int = 3  # similar few-shot examples in the SQL prompt (E3 sets 0)
+
+    answer_cache_ttl_s: int = 3600  # Redis answer cache for first questions; 0 = off
 
     langsmith_tracing: bool = True
     langsmith_api_key: str = ""

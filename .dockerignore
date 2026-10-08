@@ -1,0 +1,15 @@
+.env
+.venv
+.git
+.github
+.idea
+.pytest_cache
+.ruff_cache
+**/__pycache__
+notebooks
+evals/results
+tests
+datasets/*/raw/*
+!datasets/sales/raw/
+!datasets/sales/raw/*
+AI_CONTEXT.md

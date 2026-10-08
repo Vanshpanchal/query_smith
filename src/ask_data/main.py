@@ -7,7 +7,8 @@ from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from psycopg.rows import dict_row
 from psycopg_pool import AsyncConnectionPool
 
-from ask_data.api.routes import datasets, health, queries, threads
+from ask_data.api.cache import AnswerCache
+from ask_data.api.routes import datasets, health, queries, threads, web
 from ask_data.api.security import RateLimiter
 from ask_data.config import settings
 from ask_data.datasets.registry import DatasetRegistry
@@ -64,6 +65,7 @@ async def lifespan(app: FastAPI):
         app.state.graph = build_graph(checkpointer)
         app.state.app_pool, app.state.reader_pool, app.state.redis = app_pool, reader_pool, redis
         app.state.rate_limiter = RateLimiter(redis, settings.rate_limit_per_minute)
+        app.state.answer_cache = AnswerCache(redis, settings.answer_cache_ttl_s)
         yield
     finally:
         await redis.aclose()
@@ -77,3 +79,4 @@ app.include_router(datasets.router)
 app.include_router(datasets.admin_router)
 app.include_router(threads.router)
 app.include_router(queries.router)
+app.include_router(web.router)

@@ -84,7 +84,7 @@ def build_structured_llms() -> dict[str, StructuredLLM]:
 
     from ask_data.graph.models import FinalAnswer, Intent, SqlDraft, StandaloneQuestion
 
-    llm = init_chat_model(settings.llm_model, temperature=0)
+    llm = init_chat_model(settings.llm_model, temperature=0, max_retries=settings.llm_max_retries)
     return {
         "intent": llm.with_structured_output(Intent),
         "sql": llm.with_structured_output(SqlDraft),

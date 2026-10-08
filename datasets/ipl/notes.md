@@ -1,5 +1,6 @@
 - Match statistics (runs, balls, wickets, totals) exclude super overs: filter `deliveries.inning <= 2` unless the question is about super overs.
-- Legal ball (balls bowled, overs, economy): `extras_type IS NULL OR extras_type NOT IN ('wides', 'noballs')`.
+- Legal ball (balls bowled, overs, economy): `extras_type IS NULL OR extras_type NOT IN ('wides', 'noballs')`. Use it only to count balls; never to filter runs.
+- A batter's runs, fours and sixes count on every delivery, no-balls included: sixes = `runs_batter = 6` with no extras filter.
 - Balls faced by a batter exclude wides only (a no-ball counts as a ball faced): `extras_type IS DISTINCT FROM 'wides'`. Strike rate = 100 * SUM(runs_batter) / balls faced.
 - A bowler's wickets: `is_wicket AND wicket_kind NOT IN ('run out', 'retired hurt', 'retired out', 'obstructing the field')`.
 - Runs conceded by a bowler = `runs_total` minus byes, legbyes and penalty runs: `SUM(runs_total - CASE WHEN extras_type IN ('byes', 'legbyes', 'penalty') THEN runs_extras ELSE 0 END)`.
@@ -9,5 +10,6 @@
 - Title / champion / "won the IPL" = winner of the match with `stage = 'Final'` (exact value, capital F).
 - Teams were renamed (Delhi Daredevils -> Delhi Capitals, Kings XI Punjab -> Punjab Kings, Royal Challengers Bangalore -> Bengaluru). For a team across all seasons, or any franchise / titles question, group or filter by `teams.franchise`; for one season use `teams.name`.
 - Matches a team played: `team1_id = t.id OR team2_id = t.id`. Win % excludes no-result matches (`winner_id IS NULL`).
-- Player names are initials + surname ('V Kohli', 'MS Dhoni', 'JJ Bumrah'): match with `ILIKE '%kohli%'` and group by `players.id` (names can repeat).
+- Player names are initials + surname ('V Kohli', 'MS Dhoni', 'JJ Bumrah'). A surname alone matches several players ('%Kohli%' finds V Kohli and T Kohli): match the initial of the first name too, 'Virat Kohli' → `p.name ILIKE 'V% Kohli'`, and group by `players.id` (names can repeat).
+- An individual score is one batter's runs in one innings: `SUM(runs_batter)` grouped by match_id, inning and batter. "Highest score" means the best single innings, not a season total.
 - `season` is an integer year. "All time" / "in IPL history" = no season filter.

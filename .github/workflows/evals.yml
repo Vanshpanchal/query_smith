@@ -1,0 +1,46 @@
+name: Evals
+
+# Real LLM calls cost tokens (and a free tier allows ~1 IPL run a day), so evals only run by hand.
+on:
+  workflow_dispatch:
+    inputs:
+      dataset: {description: "Dataset", default: "ipl", required: true}
+      args: {description: "Extra run_evals.py options, e.g. --attempts 1 --label e1", default: ""}
+
+jobs:
+  eval:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env: {POSTGRES_DB: askdata, POSTGRES_PASSWORD: postgres}
+        ports: ["5432:5432"]
+        options: --health-cmd "pg_isready -U postgres" --health-interval 5s --health-retries 10
+    env:
+      APP_DB_PASSWORD: ci-app
+      READER_DB_PASSWORD: ci-reader
+      APP_DATABASE_URL: postgresql://askdata_app:ci-app@localhost:5432/askdata
+      READER_DATABASE_URL: postgresql://askdata_reader:ci-reader@localhost:5432/askdata
+      LLM_MODEL: ${{ vars.LLM_MODEL || 'groq:qwen/qwen3.8-27b' }}
+      GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+      GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+      LANGSMITH_TRACING: "false"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --locked
+      - name: Roles + migrations
+        env: {PGHOST: localhost, PGPASSWORD: postgres, POSTGRES_USER: postgres, POSTGRES_DB: askdata}
+        run: bash db/init/01_roles.sh && uv run python scripts/migrate.py
+      # inputs go through env, never straight into the script (no shell injection from inputs)
+      - name: Load dataset
+        env: {DATASET: "${{ inputs.dataset }}"}
+        run: |
+          if [ -f "scripts/fetch_${DATASET}.py" ]; then uv run python "scripts/fetch_${DATASET}.py"; fi
+          uv run python scripts/load_dataset.py "$DATASET"
+      - name: Run evals
+        env: {DATASET: "${{ inputs.dataset }}", ARGS: "${{ inputs.args }}"}
+        run: uv run python evals/run_evals.py --dataset "$DATASET" $ARGS
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: {name: eval-results, path: evals/results/}

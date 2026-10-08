@@ -18,17 +18,18 @@ class QueryLogRow:
     row_count: int | None
     latency_ms: int
     model: str
+    cached: bool = False
 
 
 async def insert(pool: AsyncConnectionPool, row: QueryLogRow) -> None:
     async with pool.connection() as conn:
         await conn.execute(
             "INSERT INTO app.query_log (id, thread_id, dataset, question, final_sql, outcome, "
-            "attempts, row_count, latency_ms, model) "
-            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+            "attempts, row_count, latency_ms, model, cached) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
             (
                 row.id, row.thread_id, row.dataset, row.question, row.final_sql, row.outcome,
-                row.attempts, row.row_count, row.latency_ms, row.model,
+                row.attempts, row.row_count, row.latency_ms, row.model, row.cached,
             ),
         )  # fmt: skip
 

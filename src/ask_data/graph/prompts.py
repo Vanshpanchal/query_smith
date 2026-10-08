@@ -75,7 +75,10 @@ Rules:
 - Qualify columns with table aliases whenever more than one table is involved.
 - Read the column comments: they define codes, units and how to count things correctly.
 - Use ILIKE for free-text matching of names.
-- For "top N" / "most" / "best" questions, ORDER BY the measure and LIMIT accordingly.
+- For "top N" / "most" / "best" questions, ORDER BY the measure and LIMIT accordingly. "Which /
+  who ... the most" asks for one row: LIMIT 1 (per group, use RANK() = 1).
+- A filter on a name must identify the one entity asked about; a partial pattern that also matches
+  other entities gives a wrong answer.
 - Never SELECT *. Return only the columns needed to answer: the entity and the measure asked for.
 - Return at most {max_rows} rows."""
 
@@ -110,7 +113,9 @@ Result: {row_count} row(s){truncated}; columns {columns}. First rows:
 Answer the question in 1-3 sentences. Use ONLY values present in the rows above; never invent
 numbers. You may round long decimals to 2 places. Use the units and currency the dataset
 description gives (never assume one it doesn't). If the result is empty, say that no matching
-data was found.{assumption_rule}"""
+data was found.
+Also pick `chart`: "line" for a trend over time, "bar" to compare categories or a ranking, "pie"
+for shares of a whole, "none" if a chart adds nothing.{assumption_rule}"""
 
 ASSUMPTION_RULE = """
 The question was ambiguous and was answered as: {assumption}. Start with a short clause that

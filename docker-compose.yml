@@ -21,6 +21,7 @@ services:
       APP_DATABASE_URL: postgresql://askdata_app:${APP_DB_PASSWORD}@postgres:5432/askdata
       READER_DATABASE_URL: postgresql://askdata_reader:${READER_DB_PASSWORD}@postgres:5432/askdata
       REDIS_URL: redis://redis:6379/0
+      AUTOLOAD_DATASETS: ${AUTOLOAD_DATASETS:-ipl,sales}
     ports: ["8000:8000"]
     depends_on: {postgres: {condition: service_healthy}, redis: {condition: service_started}}
 volumes:

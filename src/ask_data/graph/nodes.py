@@ -13,6 +13,7 @@ from langgraph.types import interrupt
 from ask_data.config import settings
 from ask_data.datasets.registry import DatasetRegistry
 from ask_data.graph import prompts
+from ask_data.graph.charts import infer_chart
 from ask_data.graph.models import FinalAnswer, Intent, SqlDraft, StandaloneQuestion
 from ask_data.graph.state import AskState
 from ask_data.llm import StructuredLLM, ainvoke_structured
@@ -162,7 +163,9 @@ async def generate_sql(state: AskState, runtime: Runtime[AgentDeps]) -> dict:
         schema=state.get("schema_context") or ds.schema_context(),
         schema_name=ds.schema,
         domain_notes=ds.notes or "(none)",
-        fewshots=prompts.format_fewshots(ds.similar_fewshots(state["question"], k=3)),
+        fewshots=prompts.format_fewshots(
+            ds.similar_fewshots(state["question"], k=settings.fewshots_k)
+        ),
         max_rows=settings.max_rows,
     )
     if state.get("last_sql"):
@@ -179,6 +182,7 @@ async def generate_sql(state: AskState, runtime: Runtime[AgentDeps]) -> dict:
     try:
         draft: SqlDraft = await ainvoke_structured(runtime.context.sql_llm, prompt)
     except Exception as e:  # noqa: BLE001 — routed to retry / give_up like any other failure
+        log.warning("generate_sql: no valid draft: %s", e)
         return {
             "attempts": attempts,
             "error": f"The model did not return a valid SQL draft: {e}",
@@ -271,15 +275,16 @@ async def answer(state: AskState, runtime: Runtime[AgentDeps]) -> dict:
             else ""
         ),
     )
+    hint = None
     try:
         result: FinalAnswer = await ainvoke_structured(runtime.context.answer_llm, prompt)
-        text = result.answer
+        text, hint = result.answer, result.chart
     except Exception as e:  # noqa: BLE001 — the rows are still worth returning
         log.warning("answer LLM failed: %s", e)
         text = f"The query returned {len(rows)} row(s); see the table for the result."
     return {
         "answer": text,
-        "chart": None,  # Phase 4: ChartSpec from the answer node
+        "chart": infer_chart(state.get("columns") or [], rows, hint),
         "outcome": "answered",
         "last_sql": state.get("sql"),
         "messages": [AIMessage(text)],

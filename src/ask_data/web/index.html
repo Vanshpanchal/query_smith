@@ -1,0 +1,310 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AskData</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.js"></script>
+<style>
+  :root {
+    --bg: #f7f7f5; --panel: #ffffff; --text: #1d1d1b; --muted: #6b6b66; --line: #e3e2dc;
+    --accent: #2f5bd3; --accent-text: #ffffff; --ok: #1f7a46; --warn: #a35a00; --bad: #b42318;
+    --code: #f1f0eb; --chart: #2f5bd3;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #151514; --panel: #1e1e1c; --text: #ecebe6; --muted: #9b9a93; --line: #2f2f2c;
+      --accent: #7c9cff; --accent-text: #10131c; --ok: #5fc48a; --warn: #f0a447; --bad: #ff7a6e;
+      --code: #262624; --chart: #7c9cff;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  header { border-bottom: 1px solid var(--line); background: var(--panel); }
+  .bar { max-width: 920px; margin: 0 auto; padding: 12px 16px; display: flex; gap: 12px;
+         align-items: center; flex-wrap: wrap; }
+  h1 { font-size: 17px; margin: 0 auto 0 0; letter-spacing: -0.01em; }
+  h1 span { color: var(--muted); font-weight: 400; }
+  select, input, button, textarea { font: inherit; color: inherit; }
+  select, input[type=password], textarea { background: var(--bg); border: 1px solid var(--line);
+         border-radius: 8px; padding: 7px 10px; }
+  button { border: 1px solid var(--line); background: var(--panel); border-radius: 8px;
+           padding: 7px 12px; cursor: pointer; }
+  button.primary { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
+  button:disabled { opacity: .5; cursor: default; }
+  main { max-width: 920px; margin: 0 auto; padding: 16px 16px 140px; }
+  .empty { color: var(--muted); padding: 40px 0; text-align: center; }
+  .turn { margin: 0 0 20px; }
+  .q { font-weight: 600; margin: 0 0 8px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
+          padding: 14px 16px; }
+  .status { color: var(--muted); font-size: 13px; margin: 2px 0; }
+  .status.retry { color: var(--warn); }
+  .status.error { color: var(--bad); }
+  .answer { font-size: 16px; margin: 10px 0 6px; white-space: pre-wrap; }
+  .answer.gave_up, .answer.declined { color: var(--muted); }
+  .clarify { margin-top: 10px; padding: 10px 12px; border-left: 3px solid var(--accent);
+             background: var(--bg); border-radius: 0 8px 8px 0; }
+  details { margin-top: 8px; }
+  summary { cursor: pointer; color: var(--muted); font-size: 13px; }
+  pre { background: var(--code); padding: 10px 12px; border-radius: 8px; overflow-x: auto;
+        font: 12.5px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; margin: 6px 0 0; }
+  .tablewrap { overflow-x: auto; margin-top: 8px; max-height: 320px; overflow-y: auto; }
+  table { border-collapse: collapse; font-size: 13px; width: 100%; }
+  th, td { text-align: left; padding: 5px 10px; border-bottom: 1px solid var(--line);
+           white-space: nowrap; }
+  th { position: sticky; top: 0; background: var(--panel); color: var(--muted); font-weight: 600; }
+  td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .chart { position: relative; height: 260px; margin-top: 12px; }
+  .meta { display: flex; gap: 8px; align-items: center; margin-top: 10px; font-size: 12px;
+          color: var(--muted); flex-wrap: wrap; }
+  .pill { border: 1px solid var(--line); border-radius: 999px; padding: 1px 8px; }
+  .fb { margin-left: auto; display: flex; gap: 6px; }
+  .fb button { padding: 2px 8px; font-size: 13px; }
+  .fb button.on { border-color: var(--accent); color: var(--accent); }
+  form.ask { position: fixed; left: 0; right: 0; bottom: 0; background: var(--panel);
+             border-top: 1px solid var(--line); }
+  form.ask .bar { flex-wrap: nowrap; }
+  form.ask textarea { flex: 1; resize: none; height: 44px; min-width: 0; }
+  #hint { font-size: 12px; color: var(--muted); max-width: 920px; margin: 0 auto;
+          padding: 0 16px 8px; }
+  @media (max-width: 560px) { h1 span { display: none; } .bar { gap: 8px; } }
+</style>
+</head>
+<body>
+<header>
+  <div class="bar">
+    <h1>AskData <span>· questions in, verified SQL out</span></h1>
+    <select id="dataset" aria-label="Dataset"></select>
+    <input id="key" type="password" placeholder="API key" aria-label="API key" size="12">
+    <button id="new" type="button">New chat</button>
+  </div>
+</header>
+<main id="log"><p class="empty" id="empty">Pick a dataset, enter your API key and ask a question.</p></main>
+<form class="ask" id="form">
+  <div class="bar">
+    <textarea id="q" placeholder="Ask a question about the data…" maxlength="500" required></textarea>
+    <button class="primary" id="send">Ask</button>
+  </div>
+  <div id="hint"></div>
+</form>
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+const store = {
+  get(k) { try { return localStorage.getItem(k); } catch { return null; } },
+  set(k, v) { try { localStorage.setItem(k, v); } catch {} },
+};
+let threadId = null, pending = null, busy = false;
+
+function el(tag, attrs = {}, ...children) {
+  const node = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs)) {
+    if (k === "class") node.className = v; else if (k === "text") node.textContent = v;
+    else node.setAttribute(k, v);
+  }
+  for (const c of children) if (c) node.append(c);
+  return node;
+}
+
+async function api(path, body) {
+  const res = await fetch(path, {
+    method: body === undefined ? "GET" : "POST",
+    headers: { "X-API-Key": $("key").value.trim(), "Content-Type": "application/json" },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  if (!res.ok) {
+    let detail = res.statusText;
+    try { detail = (await res.json()).detail || detail; } catch {}
+    throw new Error(`${res.status}: ${detail}`);
+  }
+  return res;
+}
+
+async function loadDatasets() {
+  const sel = $("dataset");
+  sel.replaceChildren();
+  try {
+    const list = await (await api("/api/v1/datasets")).json();
+    for (const d of list) sel.append(el("option", { value: d.name, text: d.title || d.name }));
+    const saved = store.get("askdata.dataset");
+    if (saved && list.some((d) => d.name === saved)) sel.value = saved;
+    $("hint").textContent = list.find((d) => d.name === sel.value)?.description || "";
+  } catch (e) {
+    sel.append(el("option", { value: "", text: "— enter API key —" }));
+    $("hint").textContent = String(e.message || e);
+  }
+}
+
+function newChat() {
+  threadId = null; pending = null;
+  $("log").replaceChildren(el("p", { class: "empty", text: "New conversation. Ask a question." }));
+  setPlaceholder();
+}
+
+function setPlaceholder() {
+  $("q").placeholder = pending ? `Reply: ${pending}` : "Ask a question about the data…";
+  $("send").textContent = pending ? "Reply" : "Ask";
+}
+
+// Minimal SSE parser over a fetch() body (EventSource can't POST or send headers)
+async function* sse(res) {
+  const reader = res.body.getReader(), dec = new TextDecoder();
+  let buf = "";
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buf += dec.decode(value, { stream: true }).replace(/\r\n/g, "\n");
+    let i;
+    while ((i = buf.indexOf("\n\n")) >= 0) {
+      const block = buf.slice(0, i); buf = buf.slice(i + 2);
+      let name = "message", data = "";
+      for (const line of block.split("\n")) {
+        if (line.startsWith("event:")) name = line.slice(6).trim();
+        else if (line.startsWith("data:")) data += line.slice(5).trim();
+      }
+      if (data) yield [name, JSON.parse(data)];
+    }
+  }
+}
+
+function renderTable(columns, rows, total, truncated) {
+  const head = el("tr", {}, ...columns.map((c) => el("th", { text: c })));
+  const body = rows.map((r) => el("tr", {}, ...r.map((v) => {
+    const isNum = typeof v === "number" || (typeof v === "string" && /^-?\d+(\.\d+)?$/.test(v));
+    return el("td", { class: isNum ? "num" : "", text: v === null ? "—" : String(v) });
+  })));
+  const note = total > rows.length || truncated
+    ? el("div", { class: "status", text: `Showing ${rows.length} of ${total}${truncated ? "+" : ""} rows` })
+    : null;
+  return el("div", {}, el("div", { class: "tablewrap" }, el("table", {}, el("thead", {}, head), el("tbody", {}, ...body))), note);
+}
+
+function renderChart(spec, columns, rows) {
+  if (!spec || spec.type === "table" || !window.Chart) return null;
+  const xi = columns.indexOf(spec.x), yi = columns.indexOf(spec.y);
+  if (xi < 0 || yi < 0) return null;
+  const css = getComputedStyle(document.documentElement);
+  const color = css.getPropertyValue("--chart").trim(), muted = css.getPropertyValue("--muted").trim();
+  const line = css.getPropertyValue("--line").trim();
+  const canvas = el("canvas");
+  const box = el("div", { class: "chart" }, canvas);
+  const labels = rows.map((r) => String(r[xi])), data = rows.map((r) => Number(r[yi]));
+  const pie = spec.type === "pie";
+  const palette = labels.map((_, i) => `color-mix(in srgb, ${color} ${100 - i * 11}%, ${css.getPropertyValue("--panel").trim()})`);
+  requestAnimationFrame(() => new Chart(canvas, {
+    type: spec.type,
+    data: { labels, datasets: [{ label: spec.y, data, backgroundColor: pie ? palette : color,
+      borderColor: color, borderWidth: pie ? 0 : 2, pointRadius: 2, tension: 0.25 }] },
+    options: {
+      responsive: true, maintainAspectRatio: false, animation: false,
+      plugins: { legend: { display: pie, position: "right", labels: { color: muted } } },
+      scales: pie ? {} : {
+        x: { ticks: { color: muted, maxRotation: 45, autoSkip: true }, grid: { display: false } },
+        y: { ticks: { color: muted }, grid: { color: line }, beginAtZero: spec.type === "bar" },
+      },
+    },
+  }));
+  return box;
+}
+
+function feedback(queryId) {
+  const wrap = el("span", { class: "fb" });
+  for (const [rating, label] of [[1, "👍"], [-1, "👎"]]) {
+    const b = el("button", { type: "button", title: rating > 0 ? "Good answer" : "Bad answer", text: label });
+    b.onclick = async () => {
+      try {
+        await api(`/api/v1/queries/${queryId}/feedback`, { rating });
+        wrap.querySelectorAll("button").forEach((x) => x.classList.remove("on"));
+        b.classList.add("on");
+      } catch (e) { b.title = e.message; }
+    };
+    wrap.append(b);
+  }
+  return wrap;
+}
+
+async function ask(text) {
+  const log = $("log");
+  $("empty")?.remove();
+  log.querySelector(".empty")?.remove();
+  const card = el("div", { class: "card" });
+  const turn = el("section", { class: "turn" }, el("p", { class: "q", text: text }), card);
+  log.append(turn);
+  const status = (msg, cls = "") => card.append(el("div", { class: `status ${cls}`, text: msg }));
+  let sql = null, table = null, attempts = 0, tables = null;
+
+  try {
+    const resuming = Boolean(pending);
+    if (!threadId) {
+      const r = await (await api("/api/v1/threads", { dataset: $("dataset").value })).json();
+      threadId = r.thread_id;
+    }
+    const res = resuming
+      ? await api(`/api/v1/threads/${threadId}/resume`, { reply: text })
+      : await api(`/api/v1/threads/${threadId}/ask`, { question: text });
+    pending = null;
+    for await (const [name, d] of sse(res)) {
+      if (name === "status") status(d.message);
+      else if (name === "tables") tables = d;
+      else if (name === "sql") { sql = d.sql; attempts = d.attempt; status(`Wrote SQL (attempt ${d.attempt})`); }
+      else if (name === "retry") status(`Retrying: ${d.stage} failed: ${d.error.split("\n")[0].slice(0, 160)}`, "retry");
+      else if (name === "rows") table = d;
+      else if (name === "clarify") {
+        pending = d.question;
+        card.append(el("div", { class: "clarify", text: d.question }));
+      } else if (name === "error") status(d.message, "error");
+      else if (name === "answer") {
+        card.querySelectorAll(".status").forEach((s) => { if (!s.classList.contains("retry")) s.remove(); });
+        card.append(el("div", { class: `answer ${d.outcome}`, text: d.answer || "" }));
+        if (table && d.outcome === "answered") {
+          const chart = renderChart(d.chart, table.columns, table.rows);
+          if (chart) card.append(chart);
+          if (table.columns.length) {
+            const det = el("details", {}, el("summary", { text: `Result · ${table.row_count} row(s)` }),
+              renderTable(table.columns, table.rows, table.row_count, table.truncated));
+            if (!chart && table.row_count > 1) det.open = true;
+            card.append(det);
+          }
+        }
+        if (d.sql) card.append(el("details", {}, el("summary", { text: "SQL" }), el("pre", { text: d.sql })));
+        const meta = el("div", { class: "meta" });
+        if (d.outcome !== "answered") meta.append(el("span", { class: "pill", text: d.outcome.replace("_", " ") }));
+        if (d.cached) meta.append(el("span", { class: "pill", text: "cached" }));
+        if (attempts > 1) meta.append(el("span", { class: "pill", text: `${attempts} attempts` }));
+        if (tables?.mode === "retrieved") meta.append(el("span", { class: "pill", text: `tables: ${tables.tables.join(", ")}` }));
+        if (d.query_id) meta.append(feedback(d.query_id));
+        card.append(meta);
+      }
+    }
+  } catch (e) {
+    status(String(e.message || e), "error");
+  }
+  setPlaceholder();
+  turn.scrollIntoView({ behavior: "smooth", block: "end" });
+}
+
+$("form").onsubmit = async (ev) => {
+  ev.preventDefault();
+  const text = $("q").value.trim();
+  if (!text || busy) return;
+  busy = true; $("send").disabled = true; $("q").value = "";
+  try { await ask(text); } finally { busy = false; $("send").disabled = false; $("q").focus(); }
+};
+$("q").addEventListener("keydown", (ev) => {
+  if (ev.key === "Enter" && !ev.shiftKey) { ev.preventDefault(); $("form").requestSubmit(); }
+});
+$("new").onclick = newChat;
+$("dataset").onchange = () => { store.set("askdata.dataset", $("dataset").value); newChat(); loadDatasets(); };
+$("key").onchange = () => { store.set("askdata.key", $("key").value.trim()); loadDatasets(); };
+(async () => {
+  $("key").value = store.get("askdata.key") || "";
+  if (!$("key").value) {
+    try { $("key").value = (await (await fetch("/web-config")).json()).demo_api_key || ""; } catch {}
+  }
+  loadDatasets();
+})();
+</script>
+</body>
+</html>

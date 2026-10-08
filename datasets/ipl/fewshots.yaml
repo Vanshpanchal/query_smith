@@ -8,7 +8,7 @@
     FROM ipl.deliveries d
     JOIN ipl.matches m ON m.id = d.match_id
     JOIN ipl.players p ON p.id = d.batter_id
-    WHERE m.season = 2016 AND d.inning <= 2 AND p.name ILIKE '%kohli%'
+    WHERE m.season = 2016 AND d.inning <= 2 AND p.name ILIKE 'V% Kohli'
     GROUP BY p.id, p.name
   expected: V Kohli 973
 
@@ -41,7 +41,7 @@
                  / COUNT(*) FILTER (WHERE d.extras_type IS DISTINCT FROM 'wides'), 2) AS strike_rate
     FROM ipl.deliveries d
     JOIN ipl.players p ON p.id = d.batter_id
-    WHERE p.name ILIKE '%dhoni%' AND d.over_no BETWEEN 0 AND 5 AND d.inning <= 2
+    WHERE p.name ILIKE 'MS% Dhoni' AND d.over_no BETWEEN 0 AND 5 AND d.inning <= 2
     GROUP BY p.id, p.name
   expected: MS Dhoni 81.94
 

@@ -7,7 +7,7 @@ from langgraph.types import Command
 
 from ask_data.config import settings
 from ask_data.graph.builder import build_graph
-from ask_data.graph.models import Intent
+from ask_data.graph.models import FinalAnswer, Intent
 from ask_data.graph.state import per_turn_reset
 from ask_data.sql.executor import QueryError
 
@@ -303,3 +303,19 @@ async def test_unusable_clarification_is_answered_instead(graph, make_deps):
     deps = make_deps(intent=label_only, results={"FROM items": ITEMS})
     out = await ask(graph, deps, "best item?")
     assert out["outcome"] == "answered" and not out.get("__interrupt__")
+
+
+async def test_answer_returns_a_chart_spec(graph, make_deps):
+    wins = (["name", "wins"], [("Robot", 3), ("Kite", 2)])
+    answer = FinalAnswer(answer="Robot sold most.", chart="pie")
+    deps = make_deps(results={"FROM items": wins}, answer=answer)
+    out = await ask(graph, deps, "orders per item")
+    assert out["chart"] == {"type": "pie", "x": "name", "y": "wins"}
+    assert "Also pick `chart`" in deps.answer_llm.prompts[0]
+
+
+async def test_chart_is_inferred_when_the_answer_llm_fails(graph, make_deps):
+    wins = (["name", "wins"], [("Robot", 3), ("Kite", 2)])
+    deps = make_deps(results={"FROM items": wins}, answer=RuntimeError("provider down"))
+    out = await ask(graph, deps, "orders per item")
+    assert out["chart"] == {"type": "bar", "x": "name", "y": "wins"}

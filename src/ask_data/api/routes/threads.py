@@ -5,11 +5,13 @@ import uuid
 from collections.abc import AsyncIterator
 
 from fastapi import APIRouter, Depends, HTTPException, Request
+from langchain_core.messages import AIMessage, HumanMessage
 from langgraph.types import Command
 from pydantic import BaseModel, Field
 from sse_starlette import EventSourceResponse
 
 from ask_data.api import query_log, threads_repo
+from ask_data.api.cache import cache_key
 from ask_data.api.security import require_api_key
 from ask_data.api.streaming import Event, EventMapper, run_turn
 from ask_data.config import settings
@@ -73,24 +75,75 @@ def _config(thread_id: str) -> dict:
 
 class Turn:
     """One graph run (a new question, or a resume): streams events and logs the run in
-    app.query_log before `done`, so a client that saw `done` can always send feedback."""
+    app.query_log before `done`, so a client that saw `done` can always send feedback.
 
-    def __init__(self, request: Request, thread_id: str, dataset: str, inputs, question: str):
+    A thread's first question (`cacheable`) may be answered from the Redis answer cache: no graph
+    run, but the answer is written into the thread's checkpoint so follow-ups still work."""
+
+    def __init__(self, request: Request, thread_id: str, dataset: str, inputs, question: str,
+                 cacheable: bool = False):  # fmt: skip
         self.request, self.thread_id, self.dataset = request, thread_id, dataset
         self.inputs, self.question = inputs, question
         self.mapper = EventMapper(query_id=str(uuid.uuid4()))
         self.started = time.perf_counter()
         self.state: dict = {}
         self.outcome: str | None = None
+        self.cached = False
+        self.cache_key: str | None = None
+        if cacheable:
+            version = request.app.state.deps.registry.get(dataset).version
+            self.cache_key = cache_key(dataset, version, question, settings.llm_model)
 
     async def events(self) -> AsyncIterator[Event]:
         app = self.request.app
         config = _config(self.thread_id)
+        if self.cache_key and not await self._first_question(config):
+            self.cache_key = None  # a follow-up depends on the conversation: never cached
+        if self.cache_key and (hit := await app.state.answer_cache.get(self.cache_key)):
+            try:
+                await self._store_in_thread(hit, config)
+            except Exception:  # a cache problem only costs a normal run
+                log.exception("could not replay a cached answer; running the graph")
+            else:
+                for event in self._cached_events(hit):
+                    yield event
+                await self._finish(config)
+                yield "done", {}
+                return
         async for name, data in run_turn(app.state.graph, self.inputs, config, app.state.deps,
                                          self.mapper):  # fmt: skip
             if name == "done":
                 await self._finish(config)
             yield name, data
+
+    async def _first_question(self, config: dict) -> bool:
+        snapshot = await self.request.app.state.graph.aget_state(config)
+        return not (snapshot.values or {}).get("messages")
+
+    async def _store_in_thread(self, hit: dict, config: dict) -> None:
+        values = {
+            **per_turn_reset(self.dataset, self.question),
+            **hit,
+            "messages": [HumanMessage(self.question), AIMessage(hit["answer"])],
+            "last_sql": hit["sql"],
+            "outcome": "answered",
+        }
+        await self.request.app.state.graph.aupdate_state(config, values, as_node="answer")
+        self.cached = True
+
+    def _cached_events(self, hit: dict) -> list[Event]:
+        """The events a real run would have sent, built by the same EventMapper."""
+        chunks = [
+            {"select_tables": {"tables": hit["tables"], "table_selection": hit["table_selection"]}},
+            {"generate_sql": {"sql": hit["sql"], "attempts": hit["attempts"]}},
+            {"execute_sql": {k: hit[k] for k in ("columns", "rows", "row_count", "truncated")}},
+            {"answer": {"answer": hit["answer"], "chart": hit["chart"], "outcome": "answered"}},
+        ]
+        events: list[Event] = [("status", {"node": "cache", "message": "Answered from cache"})]
+        for chunk in chunks:
+            events.extend(self.mapper.feed(chunk))
+        self.mapper.final["cached"] = True  # the `answer` event's payload
+        return events
 
     async def run(self) -> None:
         async for _ in self.events():
@@ -121,8 +174,11 @@ class Turn:
                     row_count=self.state.get("row_count") if self.outcome == "answered" else None,
                     latency_ms=round((time.perf_counter() - self.started) * 1000),
                     model=settings.llm_model,
+                    cached=self.cached,
                 ),
             )
+            if self.cache_key and not self.cached and self.outcome == "answered":
+                await self.request.app.state.answer_cache.put(self.cache_key, self.state)
         except Exception:  # logging must never break the answer
             log.exception("could not write app.query_log for thread %s", self.thread_id)
 
@@ -177,7 +233,7 @@ async def ask_stream(thread_id: str, body: AskRequest, request: Request):
     # pending one is dropped (per_turn_reset clears its fields)
     dataset = await _thread_dataset(request, thread_id)
     inputs = per_turn_reset(dataset, body.question)
-    return Turn(request, thread_id, dataset, inputs, body.question).sse()
+    return Turn(request, thread_id, dataset, inputs, body.question, cacheable=True).sse()
 
 
 @router.post("/threads/{thread_id}/resume")
@@ -200,7 +256,8 @@ async def ask_once(body: OneShotAskRequest, request: Request) -> dict:
         thread_id = str(uuid.uuid4())
         await threads_repo.create(request.app.state.app_pool, thread_id, dataset)
 
-    turn = Turn(request, thread_id, dataset, per_turn_reset(dataset, body.question), body.question)
+    inputs = per_turn_reset(dataset, body.question)
+    turn = Turn(request, thread_id, dataset, inputs, body.question, cacheable=True)
     await turn.run()
     if turn.mapper.error:
         raise HTTPException(502, turn.mapper.error)
@@ -221,5 +278,6 @@ async def ask_once(body: OneShotAskRequest, request: Request) -> dict:
         "truncated": state.get("truncated", False),
         "chart": state.get("chart"),
         "clarifying_question": turn.mapper.clarifying_question,
+        "cached": turn.cached,
         "latency_ms": round((time.perf_counter() - turn.started) * 1000),
     }
