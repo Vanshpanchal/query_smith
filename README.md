@@ -12,6 +12,17 @@ IPL cricket (Cricsheet, 1,243 matches, 2008–2026) is the benchmark dataset; a 
 `sales` dataset runs on the same code with no changes. Any CSV/Parquet dataset plugs in with one
 `dataset.yaml` (see [Add your own dataset](#add-your-own-dataset-in-5-steps)).
 
+- **Verified answers:** every query is parsed, cost-checked with `EXPLAIN` and run read-only;
+  failures are repaired automatically, up to 3 attempts.
+- **Conversations:** follow-ups build on the last answer, and ambiguous questions get one
+  clarifying question (LangGraph `interrupt()`, checkpointed in Postgres).
+- **Streaming UI:** the demo page shows each step live, then the answer, a chart, the rows and
+  the SQL.
+- **Measured:** hand-verified golden sets, an eval runner and a red-team suite run in CI.
+
+**Stack:** Python 3.12 · LangGraph · FastAPI (SSE) · PostgreSQL 16 + pgvector · Redis ·
+sqlglot · Groq or Gemini models · LangSmith (optional) · Docker Compose · uv.
+
 <!-- RESULTS:START -->
 ## Results
 
@@ -68,11 +79,19 @@ directly against the database role, so each layer is tested alone.
 
 ## Quickstart
 
+**Prerequisites:** Docker (with Compose), [uv](https://docs.astral.sh/uv/) for local
+development, and a free [Groq API key](https://console.groq.com/keys). A Google AI key is
+optional; it turns on embedding-based table retrieval, which only datasets with more than 8
+tables use.
+
 ```bash
-cp .env.example .env            # LLM_MODEL + GROQ_API_KEY, DB passwords, API_KEYS
+cp .env.example .env            # set GROQ_API_KEY and the three DB passwords
 make stack                      # docker: postgres + redis + api; loads ipl + sales on first start
-open http://localhost:8000      # demo page (enter one of API_KEYS)
+open http://localhost:8000      # demo page (enter one of API_KEYS, e.g. dev-key)
 ```
+
+The first start downloads the IPL data from Cricsheet (~5 MB) and loads both datasets before
+serving; `GET /ready` reports when the databases, the model and the datasets are up.
 
 Local development (API on the host, databases in docker):
 
@@ -81,7 +100,38 @@ make up && make data            # postgres + redis, migrate, fetch + load ipl
 make load DATASET=sales
 make dev                        # uvicorn with reload on :8000
 make test                       # 300+ tests: unit, graph (scripted LLM), red-team, API integration
+make lint                       # ruff check + format check
 ```
+
+### Demo page
+
+`GET /` serves a single static page (`src/ask_data/web/index.html`, no build step). It streams
+each step as it happens (tables picked, SQL written, retries, rows), then shows the answer with
+the figures highlighted, plus Chart, Table and SQL tabs, Copy SQL, CSV export and 👍/👎
+feedback. It has light and dark themes and works on phones. Links like
+`/?dataset=sales&q=Top+5+products+by+revenue` open a dataset and ask the question straight
+away. Set `DEMO_API_KEY` (also listed in `API_KEYS`) to pre-fill a public, rate-limited key for
+a hosted demo.
+
+### Configuration
+
+All settings come from `.env` (see `.env.example` for the full list).
+
+| Variable | Default | |
+|---|---|---|
+| `LLM_MODEL` | `groq:qwen/qwen3.8-27b` | `provider:model`; `google_genai:…` works too |
+| `GROQ_API_KEY` · `GOOGLE_API_KEY` | | provider keys |
+| `APP_DATABASE_URL` · `READER_DATABASE_URL` | | app role (read/write) and read-only role |
+| `API_KEYS` | `dev-key` | comma-separated keys the API accepts |
+| `ADMIN_API_KEY` | empty | enables `POST /admin/datasets/reload`; empty = disabled |
+| `RATE_LIMIT_PER_MINUTE` | `20` | per key, in Redis |
+| `MAX_ATTEMPTS` · `STATEMENT_TIMEOUT_MS` · `MAX_PLAN_COST` | `3` · `5000` · `1e6` | repair loop and query limits |
+| `DEFAULT_DATASET` | | dataset for requests that don't name one |
+| `ANSWER_CACHE_TTL_S` | `3600` | answer cache for a thread's first question; `0` = off |
+| `LANGSMITH_TRACING` · `LANGSMITH_API_KEY` | | optional tracing |
+
+**Before exposing it publicly,** replace `dev-key` in `API_KEYS` with long random keys, set
+strong DB passwords, and leave `ADMIN_API_KEY` empty unless you need the reload endpoint.
 
 ### API
 
@@ -151,6 +201,12 @@ src/ask_data/  FastAPI app, LangGraph graph, SQL guard + executor, demo page (we
 evals/         run_evals.py, metrics.py, rescore.py, LangSmith upload
 tests/         unit / graph / integration / redteam
 ```
+
+## Contributing
+
+Issues and pull requests are welcome. Before opening a PR, run `make lint` and `make test`
+(the tests need the databases from `make up`; no LLM key is required, since graph tests use
+scripted models). Dataset-specific rules belong in `datasets/<name>/`, never in `src/`.
 
 ## License
 
