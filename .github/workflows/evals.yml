@@ -26,8 +26,8 @@ jobs:
       GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
       LANGSMITH_TRACING: "false"
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v7
       - run: uv sync --locked
       - name: Roles + migrations
         env: {PGHOST: localhost, PGPASSWORD: postgres, POSTGRES_USER: postgres, POSTGRES_DB: askdata}
@@ -41,6 +41,6 @@ jobs:
       - name: Run evals
         env: {DATASET: "${{ inputs.dataset }}", ARGS: "${{ inputs.args }}"}
         run: uv run python evals/run_evals.py --dataset "$DATASET" $ARGS
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         if: always()
         with: {name: eval-results, path: evals/results/}

@@ -21,7 +21,7 @@ class Settings(BaseSettings):
     redis_url: str = "redis://localhost:6379/0"
 
     api_keys: str = "dev-key"
-    admin_api_key: str = "dev-admin-key"
+    admin_api_key: str = ""  # empty = admin endpoints disabled
     demo_api_key: str = ""  # public key the demo page pre-fills; must also be in API_KEYS
     rate_limit_per_minute: int = 20
 

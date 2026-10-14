@@ -9,8 +9,7 @@ migrate:
 
 load:
 	uv run python scripts/load_dataset.py $(DATASET)
-	@# schema cards (Phase 3): skipped until scripts/index_schema.py exists
-	@if [ -f scripts/index_schema.py ]; then uv run python scripts/index_schema.py $(DATASET); fi
+	uv run python scripts/index_schema.py $(DATASET)
 
 data: migrate
 	uv run python scripts/fetch_ipl.py

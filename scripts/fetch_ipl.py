@@ -10,6 +10,7 @@ import argparse
 import io
 import shutil
 import sys
+import time
 import zipfile
 from pathlib import Path
 
@@ -17,6 +18,27 @@ import httpx
 
 URL = "https://cricsheet.org/downloads/ipl_json.zip"
 RAW_DIR = Path(__file__).resolve().parent.parent / "datasets" / "ipl" / "raw"
+HEADERS = {"User-Agent": "query-smith/0.1 (+https://github.com/Vanshpanchal/query_smith)"}
+
+
+def download(url: str, attempts: int = 3) -> bytes | None:
+    """The zip's bytes, or None. Retries with backoff: Cricsheet sometimes answers CI runners
+    with an error or a 200 HTML page instead of the zip."""
+    for attempt in range(1, attempts + 1):
+        print(f"downloading {url} … (attempt {attempt}/{attempts})")
+        try:
+            resp = httpx.get(url, follow_redirects=True, timeout=120, headers=HEADERS)
+            resp.raise_for_status()
+        except httpx.HTTPError as e:
+            problem = str(e)
+        else:
+            if zipfile.is_zipfile(io.BytesIO(resp.content)):
+                return resp.content
+            problem = f"not a zip (content-type: {resp.headers.get('content-type', 'unknown')})"
+        print(f"✗ {problem}", file=sys.stderr)
+        if attempt < attempts:
+            time.sleep(5 * attempt)
+    return None
 
 
 def main() -> int:
@@ -31,15 +53,11 @@ def main() -> int:
         print(f"✓ {len(existing)} match files already in {args.dest} (use --force to refresh)")
         return 0
 
-    print(f"downloading {args.url} …")
-    try:
-        resp = httpx.get(args.url, follow_redirects=True, timeout=120)
-        resp.raise_for_status()
-    except httpx.HTTPError as e:
-        print(f"✗ download failed: {e}", file=sys.stderr)
+    content = download(args.url)
+    if content is None:
         return 1
 
-    with zipfile.ZipFile(io.BytesIO(resp.content)) as zf:
+    with zipfile.ZipFile(io.BytesIO(content)) as zf:
         members = [m for m in zf.namelist() if m.endswith(".json") and "/" not in m]
         if not members:
             print("✗ zip contains no match .json files", file=sys.stderr)
@@ -51,7 +69,7 @@ def main() -> int:
         for m in members:
             (args.dest / m).write_bytes(zf.read(m))
 
-    print(f"✓ {len(members)} match files → {args.dest} ({len(resp.content) / 1e6:.1f} MB zip)")
+    print(f"✓ {len(members)} match files → {args.dest} ({len(content) / 1e6:.1f} MB zip)")
     return 0
 
 

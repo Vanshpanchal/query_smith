@@ -22,3 +22,6 @@ datasets/*/raw/
 
 # Jupyter
 .ipynb_checkpoints/
+
+# macOS
+.DS_Store

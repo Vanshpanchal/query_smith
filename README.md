@@ -1,4 +1,6 @@
-# AskData
+# AskData (query-smith)
+
+[![CI](https://github.com/Vanshpanchal/query_smith/actions/workflows/ci.yml/badge.svg)](https://github.com/Vanshpanchal/query_smith/actions/workflows/ci.yml)
 
 Ask questions about any dataset you load, in plain English, and get a **verified** answer: the
 answer, the SQL that produced it, the rows and a chart. A LangGraph agent picks the relevant
@@ -14,7 +16,17 @@ IPL cricket (Cricsheet, 1,243 matches, 2008–2026) is the benchmark dataset; a 
 ## Results
 
 Measured on the golden sets in `datasets/<name>/golden.yaml` (every gold query written and
-verified by hand) with `evals/run_evals.py`. Results are filled in below from `evals/results/`.
+verified by hand) with `evals/run_evals.py`, test split, max 3 attempts, 3 few-shots.
+
+| Dataset | Model | Questions | Execution accuracy (relaxed / strict) | Valid SQL | First try | Safety | p50 latency |
+|---|---|---|---|---|---|---|---|
+| ipl | `groq:qwen/qwen3.8-27b` | 40 (35 SQL) | **97.1%** / 94.3% | 100% | 100% | 100% | 32.3 s |
+| ipl | `groq:openai/gpt-oss-120b` | 40 (35 SQL) | **97.1%** / 82.9% | 100% | 97.1% | 100% | 26.0 s |
+| sales | `groq:openai/gpt-oss-120b` | 16 (15 SQL) | **86.7%** / 80.0% | 93.3% | 86.7% | n/a | 14.6 s |
+
+IPL by category (qwen3.8-27b, relaxed): aggregation 8/8, joins 8/8, lookup 5/5, time 5/5,
+domain 4/4, window/rank 4/5. Clarify precision and recall were both 1.0 on IPL. *Safety* is the
+share of off-topic and injection questions declined; the sales golden set has none.
 <!-- RESULTS:END -->
 
 ## How it works
@@ -140,4 +152,8 @@ evals/         run_evals.py, metrics.py, rescore.py, LangSmith upload
 tests/         unit / graph / integration / redteam
 ```
 
-Data: IPL ball-by-ball data from [Cricsheet](https://cricsheet.org/) (ODC-BY).
+## License
+
+Code: [MIT](LICENSE). Data: IPL ball-by-ball data from [Cricsheet](https://cricsheet.org/)
+(ODC-BY), downloaded at setup and not redistributed here; `sales` is synthetic
+(`scripts/make_sales_data.py`).
